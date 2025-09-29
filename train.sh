@@ -5,15 +5,16 @@ cd "/raid/alifbinabdulqayyum/VenusVaccine_old"
 
 # Change this part accordingly
 # ========================== #
-datasource="Virus" #"Virus" "Bacteria" "Tumor"
+datasource="Virus" # "Virus" "Bacteria" "Tumor"
+prob_model="sgld" # "edl", "la", "svdkl", "swag", "vbll", "sgld"
 # ========================== #
 
-script=train.py
+script=train_"$prob_model".py
 max_batch_token=10000 
 patience=5
 max_train_epochs=50
 
-dataset="$datasource"Binary #Virus, Bacteria, Tumor
+dataset="$datasource"Binary
 pdb_type=ESMFold
 seqs=ez_descriptor,esm3_structure_seq,foldseek_seq
 seqs_type=full
@@ -27,14 +28,10 @@ lr=1e-4
 
 for seed in 1 2 3 4 5;
 do
-    # ckpt_root=./ckpt-"$datasource"Immunogen-"$prob_model"-seed-"$seed"
-    ckpt_root=./ckpt-"$datasource"Immunogen-seed-"$seed"
+    ckpt_root=./ckpt-"$datasource"Immunogen-"$prob_model"-seed-"$seed"
 
     plm_model_name_list=( "esmc_600m" "Rostlab/ProstT5" "ElnaggarLab/ankh-large" "facebook/esm2_t33_650M_UR50D" "Rostlab/prot_bert" )
     model_name_list=( "esmc_wiln" "prost_t5" "ankh" "esm2" "prot_bert" )
-
-    # plm_model_name_list=( "ElnaggarLab/ankh-large" )
-    # model_name_list=( "ankh" )
 
     for ((i=0;i<${#plm_model_name_list[@]};++i)); do
         # Echo info of task to be executed
