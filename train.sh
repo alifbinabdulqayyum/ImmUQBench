@@ -1,8 +1,3 @@
-source "/raid/alifbinabdulqayyum/anaconda3/bin/activate"
-conda activate esm
-
-cd "/raid/alifbinabdulqayyum/VenusVaccine_old"
-
 # Change this part accordingly
 # ========================== #
 datasource="Virus" # "Virus" "Bacteria" "Tumor"
