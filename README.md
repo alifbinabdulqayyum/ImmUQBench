@@ -12,3 +12,13 @@ Run `train.sh` for training UQ models.
 ```
 bash train.sh
 ```
+For training different UQ models change the following part of the `train.sh` file.
+```
+datasource="Virus" # "Virus" "Bacteria" "Tumor"
+prob_model="sgld" # "edl", "la", "svdkl", "swag", "vbll", "sgld"
+```
+For example if you want train SWAG models on ImmunoBacteria dataset, change the `train.sh` accordingly:
+```
+datasource="Bacteria" # "Virus" "Bacteria" "Tumor"
+prob_model="swag" # "edl", "la", "svdkl", "swag", "vbll", "sgld"
+```
