@@ -16,6 +16,8 @@ import os
 from esm.models.esmc import ESMC
 from esm.tokenization import get_esmc_model_tokenizers
 from tqdm import tqdm
+import sys
+sys.path.append(os.getcwd())
 
 model_params = {
     'hidden_size': None,  # 将由PLM模型自动设置
@@ -25,26 +27,25 @@ model_params = {
     'pooling_method': 'attention1d',
     'pooling_dropout': 0.1,
     'return_attentions': False,
-    'structure_seqs': ['ez_descriptor', 'foldseek_seq', 'esm3_structure_seq'], 
+    'structure_seqs': ['ez_descriptor', 'esm3_structure_seq', 'foldseek_seq'],
     'vocab_size': 4100,
 }
-
-K = 2
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # model params
-    parser.add_argument('--datasource', type=str, default="Virus", choices=["Virus", "Bacteria", "Tumor"])
-    parser.add_argument('--targetsource', type=str, default="Virus", choices=["Virus", "Bacteria", "Tumor"])
+    parser.add_argument('--datasource', type=str, default="Virus", choices=["Virus", "Bacteria", "Tumor", "ToxDL", "SDAP2"])
+    parser.add_argument('--targetsource', type=str, default="Virus", choices=["Virus", "Bacteria", "Tumor", "ToxDL", "SDAP2"])
     parser.add_argument('--num_runs', type=int, default=8)
+    parser.add_argument('--testset', type=str, default="test", choices=["test", "independent", "valid"])
     parser.add_argument('--seed', type=int, default=None)
     
     args = parser.parse_args()
 
 NUM_RUNS = args.num_runs #50
 
-# testset = "test" # "test" or "independent"
+testset = args.testset # "test" or "independent"
 datasource = args.datasource # "Virus" or "Bacteria" or "Tumor"
 targetsource = args.targetsource
 mutation_prob = "" #"5e-4" #0.2
@@ -55,51 +56,78 @@ mutation_rate = "" #"full" # #0.001
 # ckpt_root = "./ckpt-SDAP2-wSelfAttention"
 # ckpt_root = "./ckpt-SDAP2-woutFoldSeek"
 
-if 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-    ckpt_root = "./ckpt-{}Immunogen-EDL".format(datasource)
-elif not 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-    ckpt_root = "./ckpt-{}Immunogen-EDL-woutFoldSeek".format(datasource)
-elif 'foldseek_seq' in model_params['structure_seqs'] and not 'esm3_structure_seq' in model_params['structure_seqs']:
-    ckpt_root = "./ckpt-{}Immunogen-EDL-woutESM3".format(datasource)
+if args.datasource in ["Virus", "Bacteria", "Tumor"]:
+    if 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
+        ckpt_root = "./ckpt-{}Immunogen".format(datasource)
+    elif not 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
+        ckpt_root = "./ckpt-{}Immunogen-woutFoldSeek".format(datasource)
+    elif 'foldseek_seq' in model_params['structure_seqs'] and not 'esm3_structure_seq' in model_params['structure_seqs']:
+        ckpt_root = "./ckpt-{}Immunogen-woutESM3".format(datasource)
+    else:
+        ckpt_root = "./ckpt-{}Immunogen-only-ez".format(datasource)
+elif args.datasource in ["ToxDL", "SDAP2"]:
+    if 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
+        ckpt_root = "./ckpt-{}".format(datasource)
+    elif not 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
+        ckpt_root = "./ckpt-{}-woutFoldSeek".format(datasource)
+    elif 'foldseek_seq' in model_params['structure_seqs'] and not 'esm3_structure_seq' in model_params['structure_seqs']:
+        ckpt_root = "./ckpt-{}-woutESM3".format(datasource)
+    else:
+        ckpt_root = "./ckpt-{}-only-ez".format(datasource)
 else:
-    ckpt_root = "./ckpt-{}Immunogen-EDL-only-ez".format(datasource)
+    raise NotImplementedError("Trained Model Unavailable")
 
 if args.seed is not None:
     ckpt_root += f"-seed-{args.seed}"
 
-# datafilepath="./ToxDL_Data/json_files/{}_data_with_label.json".format(testset)
-# datafilepath="./SDAP2_DATA/json_files/{}_data_with_label.json".format(testset)
-datafilepath="./dataset/{}Binary/ESMFold/test.json".format(targetsource)
+if args.targetsource in ["Virus", "Bacteria", "Tumor"]:
+    test_datafilepath="./dataset/{}Binary/ESMFold/{}.json".format(targetsource, testset)
+elif args.targetsource in ["ToxDL"]:
+    test_datafilepath="./ToxDL_Data/json_files/{}_data_with_label.json".format(testset)
+elif args.targetsource in ["SDAP2"]:
+    test_datafilepath="./SDAP2_DATA/json_files/{}_data_with_label.json".format(testset)
+else:
+    raise NotImplementedError("Data Not Available")
+
+# val_datafilepath="./dataset/{}Binary/ESMFold/valid.json".format(targetsource)
+# test_datafilepath="./dataset/{}Binary/ESMFold/test.json".format(targetsource)
 
 # result_save_dir = "./Predict-Results-VBT-UQ-DROPOUT"
-result_save_dir = "./Predict-Results-VBT-EDL"
+# result_save_dir = "./Predict-Results-VBT-UQ-LA"
+
+if args.datasource in ["Virus", "Bacteria", "Tumor"]:
+    result_save_dir = "./Predict-Results-VBT-UQ-DROPOUT"
+elif args.datasource in ["SDAP2", "ToxDL"]:
+    result_save_dir = "./Predict-Results-UQ-DROPOUT"
+else:
+    raise NotImplementedError("Data Not Available")
 
 if args.seed is not None:
     result_save_dir += f"-seed-{args.seed}"
 
 os.makedirs(result_save_dir, exist_ok=True)
-# pred_filename = "SDAP2_{}.json".format(testset)
-# pred_filename = "ToxDL_wSelfAttention_{}_woutESM3.json".format(testset)
-# pred_filename = "{}_test.json".format(datasource)
+
 
 if datasource == targetsource:
     if 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-        pred_filename = "{}_test.json".format(datasource)
+        pred_filename = "{}_{}.json".format(targetsource, testset)
     elif not 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-        pred_filename = "{}_test_woutFoldSeek.json".format(datasource)
+        pred_filename = "{}_{}_woutFoldSeek.json".format(targetsource, testset)
     elif 'foldseek_seq' in model_params['structure_seqs'] and not 'esm3_structure_seq' in model_params['structure_seqs']:
-        pred_filename = "{}_test_woutESM3.json".format(datasource)
+        pred_filename = "{}_{}_woutESM3.json".format(targetsource, testset)
     else:
-        pred_filename = "{}_test_only_ez.json".format(datasource)
+        pred_filename = "{}_{}_only_ez.json".format(targetsource, testset)
 else:
     if 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-        pred_filename = "data_{}_target_{}_test.json".format(datasource, targetsource)
+        pred_filename = "data_{}_target_{}_{}.json".format(datasource, targetsource, testset)
     elif not 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-        pred_filename = "data_{}_target_{}_test_woutFoldSeek.json".format(datasource, targetsource)
+        pred_filename = "data_{}_target_{}_{}_woutFoldSeek.json".format(datasource, targetsource, testset)
     elif 'foldseek_seq' in model_params['structure_seqs'] and not 'esm3_structure_seq' in model_params['structure_seqs']:
-        pred_filename = "data_{}_target_{}_test_woutESM3.json".format(datasource, targetsource)
+        pred_filename = "data_{}_target_{}_{}_woutESM3.json".format(datasource, targetsource, testset)
     else:
-        pred_filename = "data_{}_target_{}_test_only_ez.json".format(datasource, targetsource)
+        pred_filename = "data_{}_target_{}_{}_only_ez.json".format(datasource, targetsource,testset)
+
+print(pred_filename, test_datafilepath)
 
 wSelfAttention = False
 
@@ -219,69 +247,71 @@ def collate_fn(
         data_dict["esm3_structure_input_ids"] = esm3_structure_input_ids
     return data_dict
 
-# def infer(model, plm_model, dataloader, device, num_runs:int = NUM_RUNS):
+# def infer(model, plm_model, dataloader, device):
 #     names, pred_labels, pred_probas, true_labels = [], [], [], []
-#     model.train()
+#     # model.train()
 #     for batch in tqdm(dataloader):
 #         names.extend(batch.pop("names"))
 #         true_labels.extend(batch.pop("label").cpu().numpy())
 #         for k, v in batch.items():
 #             batch[k] = v.to(device)
 
-#         logits_list = []
-#         for _ in range(num_runs):
-#             with torch.no_grad():
-#                 logits = model(plm_model, batch)
-#             logits_list.append(logits[:,None,:])
-#         logits_list = torch.cat(logits_list, dim=1)
+#         with torch.no_grad():
+#             logits = model(plm_model, batch)
 
-#         pred_labels.extend(logits_list.argmax(dim=-1).cpu().numpy())
-#         pred_probas.extend(logits_list.softmax(dim=-1).cpu().numpy())
+#         pred_labels.extend(logits.argmax(dim=-1).cpu().numpy())
+#         pred_probas.extend(logits.softmax(dim=-1)[:,1].cpu().numpy())
 
 #     return names, pred_labels, pred_probas, true_labels
 
-# This function to generate evidence is used for the first example
-def relu_evidence(logits):
-    return torch.nn.functional.relu(logits)
-
 def infer(model, plm_model, dataloader, device, num_runs:int = NUM_RUNS):
-    names, pred_labels, pred_probas, true_labels, pred_u = [], [], [], [], []
-    # model.train()
+    names, pred_labels, pred_probas, true_labels = [], [], [], []
+    model.train()
     for batch in tqdm(dataloader):
         names.extend(batch.pop("names"))
         true_labels.extend(batch.pop("label").cpu().numpy())
         for k, v in batch.items():
             batch[k] = v.to(device)
 
-        # logits_list = []
-        # for _ in range(num_runs):
-        #     with torch.no_grad():
-        #         logits = model(plm_model, batch)
-        #     logits_list.append(logits[:,None,:])
-        # logits_list = torch.cat(logits_list, dim=1)
+        logits_list = []
+        for _ in range(num_runs):
+            with torch.no_grad():
+                # model.sample(scale=1, cov=True)
+                logits = model(plm_model, batch)
+            logits_list.append(logits[:,None,:])
+        logits_list = torch.cat(logits_list, dim=1)
 
-        with torch.no_grad():
-            logits = model(plm_model, batch)
-            evidence = relu_evidence(logits)
-            alpha = evidence + 1
-            u = K / torch.sum(alpha, axis=-1, keepdims=True) #uncertainty        
-            prob = alpha/torch.sum(alpha, axis=-1, keepdims=True)
+        # with torch.no_grad():
+        #     logits = model(plm_model, batch)
 
-        # pred_labels.extend(logits_list.argmax(dim=-1).cpu().numpy())
-        # pred_probas.extend(logits_list.softmax(dim=-1).cpu().numpy())
+        pred_labels.extend(logits_list.argmax(dim=-1).cpu().numpy())
+        pred_probas.extend(logits_list.softmax(dim=-1).cpu().numpy())
 
-        pred_labels.extend(prob.argmax(dim=-1).cpu().numpy())
-        pred_probas.extend(prob[:,1].cpu().numpy())
-        pred_u.extend(u.cpu().numpy())
+        # pred_labels.extend(logits.argmax(dim=-1).cpu().numpy())
+        # pred_probas.extend(logits.softmax(dim=-1)[:,1].cpu().numpy())
 
-    return names, pred_labels, pred_probas, pred_u, true_labels
+    return names, pred_labels, pred_probas, true_labels
 
 pred_dict = {}
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+
+# if args.pred_val:
+#     test_dataset, test_token_num = process_dataset_from_json(
+#         file=val_datafilepath, 
+#         max_seq_len=None,
+#         structure_seqs=model_params["structure_seqs"],
+#     )
+# else:
+#     test_dataset, test_token_num = process_dataset_from_json(
+#         file=test_datafilepath, 
+#         max_seq_len=None,
+#         structure_seqs=model_params["structure_seqs"],
+#     )
+
 test_dataset, test_token_num = process_dataset_from_json(
-    file=datafilepath, 
+    file=test_datafilepath, 
     max_seq_len=None,
     structure_seqs=model_params["structure_seqs"],
 )
@@ -303,7 +333,8 @@ model_name = "esmc_wiln"
 
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
 model.load_state_dict(torch.load(model_path, weights_only=False), strict=True)
-# print(model)
+print(model)
+print(model_path)
 
 test_loader = DataLoader(
         test_dataset,
@@ -313,14 +344,13 @@ test_loader = DataLoader(
     )
 
 with torch.no_grad():
-    names, pred_labels, pred_probas, pred_us, true_labels = infer(model, plm_model, test_loader, device)
+    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device)
 
-for name, pred_label, pred_prob, pred_u, true_label in zip(names, pred_labels, pred_probas, pred_us, true_labels):
+for name, pred_label, pred_prob, true_label in zip(names, pred_labels, pred_probas, true_labels):
     pred_dict[name] = {}
-    pred_dict[name]['pred_label'], pred_dict[name]['pred_prob'], pred_dict[name]['pred_u'] = {}, {}, {}
+    pred_dict[name]['pred_label'], pred_dict[name]['pred_prob'] = {}, {}
     pred_dict[name]['pred_label'][plm_model_name] = np.int8(pred_label)
     pred_dict[name]['pred_prob'][plm_model_name] = pred_prob
-    pred_dict[name]['pred_u'][plm_model_name] = pred_u
     pred_dict[name]['true_label'] = np.int8(true_label)
 
 plm_model_name = "Rostlab/ProstT5"
@@ -340,6 +370,8 @@ model_name = "prost_t5"
 
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
 model.load_state_dict(torch.load(model_path, weights_only=False), strict=True)
+print(model)
+print(model_path)
 
 test_loader = DataLoader(
         test_dataset,
@@ -349,14 +381,13 @@ test_loader = DataLoader(
     )
 
 with torch.no_grad():
-    names, pred_labels, pred_probas, pred_us, true_labels = infer(model, plm_model, test_loader, device)
+    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device)
 
-for name, pred_label, pred_prob, pred_u, true_label in zip(names, pred_labels, pred_probas, pred_us, true_labels):
+for name, pred_label, pred_prob in zip(names, pred_labels, pred_probas):
     # pred_dict[name] = {}
     # pred_dict[name]['pred_label'], pred_dict[name]['pred_prob'] = {}, {}
     pred_dict[name]['pred_label'][plm_model_name] = np.int8(pred_label)
     pred_dict[name]['pred_prob'][plm_model_name] = pred_prob
-    pred_dict[name]['pred_u'][plm_model_name] = pred_u
     # pred_dict[name]['true_label'] = true_label
 
 plm_model_name = "ElnaggarLab/ankh-large"
@@ -376,6 +407,8 @@ model_name = "ankh"
 
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
 model.load_state_dict(torch.load(model_path, weights_only=False), strict=True)
+print(model)
+print(model_path)
 
 test_loader = DataLoader(
         test_dataset,
@@ -385,14 +418,13 @@ test_loader = DataLoader(
     )
 
 with torch.no_grad():
-    names, pred_labels, pred_probas, pred_us, true_labels = infer(model, plm_model, test_loader, device)
+    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device)
 
-for name, pred_label, pred_prob, pred_u, true_label in zip(names, pred_labels, pred_probas, pred_us, true_labels):
+for name, pred_label, pred_prob in zip(names, pred_labels, pred_probas):
     # pred_dict[name] = {}
     # pred_dict[name]['pred_label'], pred_dict[name]['pred_prob'] = {}, {}
     pred_dict[name]['pred_label'][plm_model_name] = np.int8(pred_label)
     pred_dict[name]['pred_prob'][plm_model_name] = pred_prob
-    pred_dict[name]['pred_u'][plm_model_name] = pred_u
     # pred_dict[name]['true_label'] = true_label
 
 plm_model_name = "facebook/esm2_t33_650M_UR50D"
@@ -412,6 +444,8 @@ model_name = "esm2"
 
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
 model.load_state_dict(torch.load(model_path, weights_only=False, map_location=device), strict=True)
+print(model)
+print(model_path)
 
 test_loader = DataLoader(
         test_dataset,
@@ -421,14 +455,13 @@ test_loader = DataLoader(
     )
 
 with torch.no_grad():
-    names, pred_labels, pred_probas, pred_us, true_labels = infer(model, plm_model, test_loader, device)
+    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device)
 
-for name, pred_label, pred_prob, pred_u, true_label in zip(names, pred_labels, pred_probas, pred_us, true_labels):
+for name, pred_label, pred_prob in zip(names, pred_labels, pred_probas):
     # pred_dict[name] = {}
     # pred_dict[name]['pred_label'], pred_dict[name]['pred_prob'] = {}, {}
     pred_dict[name]['pred_label'][plm_model_name] = np.int8(pred_label)
     pred_dict[name]['pred_prob'][plm_model_name] = pred_prob
-    pred_dict[name]['pred_u'][plm_model_name] = pred_u
     # pred_dict[name]['true_label'] = true_label
 
 plm_model_name = "Rostlab/prot_bert"
@@ -448,6 +481,8 @@ model_name = "prot_bert"
 
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
 model.load_state_dict(torch.load(model_path, weights_only=False, map_location=device), strict=True)
+print(model)
+print(model_path)
 
 test_loader = DataLoader(
         test_dataset,
@@ -457,17 +492,20 @@ test_loader = DataLoader(
     )
 
 with torch.no_grad():
-    names, pred_labels, pred_probas, pred_us, true_labels = infer(model, plm_model, test_loader, device)
+    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device)
 
-for name, pred_label, pred_prob, pred_u, true_label in zip(names, pred_labels, pred_probas, pred_us, true_labels):
+for name, pred_label, pred_prob in zip(names, pred_labels, pred_probas):
     # pred_dict[name] = {}
     # pred_dict[name]['pred_label'], pred_dict[name]['pred_prob'] = {}, {}
     pred_dict[name]['pred_label'][plm_model_name] = np.int8(pred_label)
     pred_dict[name]['pred_prob'][plm_model_name] = pred_prob
-    pred_dict[name]['pred_u'][plm_model_name] = pred_u
     # pred_dict[name]['true_label'] = true_label
 
-with open(os.path.join(result_save_dir, pred_filename), "w", encoding="utf8") as file:
+
+save_filepath = os.path.join(result_save_dir, pred_filename)
+print(save_filepath)
+
+with open(save_filepath, "w", encoding="utf8") as file:
     json.dump(pred_dict, file, default=str)
 
 # print(pred_dict)

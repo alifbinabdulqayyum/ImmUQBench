@@ -16,6 +16,8 @@ import os
 from esm.models.esmc import ESMC
 from esm.tokenization import get_esmc_model_tokenizers
 from tqdm import tqdm
+import sys
+sys.path.append(os.getcwd())
 
 FEAT_DIM = 64
 

@@ -16,6 +16,8 @@ import os
 from esm.models.esmc import ESMC
 from esm.tokenization import get_esmc_model_tokenizers
 from tqdm import tqdm
+import sys
+sys.path.append(os.getcwd())
 
 model_params = {
     'hidden_size': None,  # 将由PLM模型自动设置
@@ -25,7 +27,7 @@ model_params = {
     'pooling_method': 'attention1d',
     'pooling_dropout': 0.1,
     'return_attentions': False,
-    'structure_seqs': ['ez_descriptor', 'foldseek_seq', 'esm3_structure_seq'], 
+    'structure_seqs': ['ez_descriptor', 'foldseek_seq', 'esm3_structure_seq'], #
     'vocab_size': 4100,
 }
 
@@ -54,25 +56,24 @@ mutation_rate = "" #"full" # #0.001
 # ckpt_root = "./ckpt-SDAP2-wSelfAttention"
 # ckpt_root = "./ckpt-SDAP2-woutFoldSeek"
 
-
 if args.datasource in ["Virus", "Bacteria", "Tumor"]:
     if 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-        ckpt_root = "./ckpt-{}Immunogen-SWAG".format(datasource)
+        ckpt_root = "./ckpt-{}Immunogen".format(datasource)
     elif not 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-        ckpt_root = "./ckpt-{}Immunogen-SWAG-woutFoldSeek".format(datasource)
+        ckpt_root = "./ckpt-{}Immunogen-woutFoldSeek".format(datasource)
     elif 'foldseek_seq' in model_params['structure_seqs'] and not 'esm3_structure_seq' in model_params['structure_seqs']:
-        ckpt_root = "./ckpt-{}Immunogen-SWAG-woutESM3".format(datasource)
+        ckpt_root = "./ckpt-{}Immunogen-woutESM3".format(datasource)
     else:
-        ckpt_root = "./ckpt-{}Immunogen-SWAG-only-ez".format(datasource)
+        ckpt_root = "./ckpt-{}Immunogen-only-ez".format(datasource)
 elif args.datasource in ["ToxDL", "SDAP2"]:
     if 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-        ckpt_root = "./ckpt-{}-SWAG".format(datasource)
+        ckpt_root = "./ckpt-{}".format(datasource)
     elif not 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-        ckpt_root = "./ckpt-{}-SWAG-woutFoldSeek".format(datasource)
+        ckpt_root = "./ckpt-{}-woutFoldSeek".format(datasource)
     elif 'foldseek_seq' in model_params['structure_seqs'] and not 'esm3_structure_seq' in model_params['structure_seqs']:
-        ckpt_root = "./ckpt-{}-SWAG-woutESM3".format(datasource)
+        ckpt_root = "./ckpt-{}-woutESM3".format(datasource)
     else:
-        ckpt_root = "./ckpt-{}-SWAG-only-ez".format(datasource)
+        ckpt_root = "./ckpt-{}-only-ez".format(datasource)
 else:
     raise NotImplementedError("Trained Model Unavailable")
 
@@ -80,20 +81,28 @@ if args.seed is not None:
     ckpt_root += f"-seed-{args.seed}"
 
 if args.targetsource in ["Virus", "Bacteria", "Tumor"]:
-    datafilepath="./dataset/{}Binary/ESMFold/test.json".format(targetsource)
+    val_datafilepath="./dataset/{}Binary/ESMFold/valid.json".format(datasource)
+    test_datafilepath="./dataset/{}Binary/ESMFold/test.json".format(targetsource)
 elif args.targetsource in ["ToxDL"]:
-    datafilepath="./ToxDL_Data/json_files/{}_data_with_label.json".format(testset)
+    # datafilepath="./ToxDL_Data/json_files/{}_data_with_label.json".format(testset)
+    val_datafilepath="./ToxDL_Data/json_files/valid_data_with_label.json"
+    test_datafilepath="./ToxDL_Data/json_files/{}_data_with_label.json".format(testset)
 elif args.targetsource in ["SDAP2"]:
-    datafilepath="./SDAP2_DATA/json_files/test_data_with_label.json"
+    # datafilepath="./SDAP2_DATA/json_files/test_data_with_label.json"
+    val_datafilepath="./SDAP2_DATA/json_files/valid_data_with_label.json"
+    test_datafilepath="./SDAP2_DATA/json_files/test_data_with_label.json"
 else:
     raise NotImplementedError("Data Not Available")
 
+# val_datafilepath="./dataset/{}Binary/ESMFold/valid.json".format(targetsource)
+# test_datafilepath="./dataset/{}Binary/ESMFold/test.json".format(targetsource)
+
 # result_save_dir = "./Predict-Results-VBT-UQ-DROPOUT"
-# result_save_dir = "./Predict-Results-VBT-UQ-SWAG"
+# result_save_dir = "./Predict-Results-VBT-UQ-LA"
 if args.datasource in ["Virus", "Bacteria", "Tumor"]:
-    result_save_dir = "./Predict-Results-VBT-UQ-SWAG"
+    result_save_dir = "./Predict-Results-VBT-TS"
 elif args.datasource in ["SDAP2", "ToxDL"]:
-    result_save_dir = "./Predict-Results-UQ-SWAG"
+    result_save_dir = "./Predict-Results-TS"
 else:
     raise NotImplementedError("Data Not Available")
 
@@ -101,9 +110,7 @@ if args.seed is not None:
     result_save_dir += f"-seed-{args.seed}"
 
 os.makedirs(result_save_dir, exist_ok=True)
-# pred_filename = "SDAP2_{}.json".format(testset)
-# pred_filename = "ToxDL_wSelfAttention_{}_woutESM3.json".format(testset)
-# pred_filename = "{}_test.json".format(datasource)
+
 
 if datasource == targetsource:
     if 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
@@ -242,6 +249,127 @@ def collate_fn(
         data_dict["esm3_structure_input_ids"] = esm3_structure_input_ids
     return data_dict
 
+class _ECELoss(torch.nn.Module):
+    """
+    Calculates the Expected Calibration Error of a model.
+    (This isn't necessary for temperature scaling, just a cool metric).
+
+    The input to this loss is the logits of a model, NOT the softmax scores.
+
+    This divides the confidence outputs into equally-sized interval bins.
+    In each bin, we compute the confidence gap:
+
+    bin_gap = | avg_confidence_in_bin - accuracy_in_bin |
+
+    We then return a weighted average of the gaps, based on the number
+    of samples in each bin
+
+    See: Naeini, Mahdi Pakdaman, Gregory F. Cooper, and Milos Hauskrecht.
+    "Obtaining Well Calibrated Probabilities Using Bayesian Binning." AAAI.
+    2015.
+    """
+    def __init__(self, n_bins=15):
+        """
+        n_bins (int): number of confidence interval bins
+        """
+        super(_ECELoss, self).__init__()
+        bin_boundaries = torch.linspace(0, 1, n_bins + 1)
+        self.bin_lowers = bin_boundaries[:-1]
+        self.bin_uppers = bin_boundaries[1:]
+
+    def forward(self, logits, labels):
+        softmaxes = torch.nn.functional.softmax(logits, dim=1)
+        confidences, predictions = torch.max(softmaxes, 1)
+        accuracies = predictions.eq(labels)
+
+        ece = torch.zeros(1, device=logits.device)
+        for bin_lower, bin_upper in zip(self.bin_lowers, self.bin_uppers):
+            # Calculated |confidence - accuracy| in each bin
+            in_bin = confidences.gt(bin_lower.item()) * confidences.le(bin_upper.item())
+            prop_in_bin = in_bin.float().mean()
+            if prop_in_bin.item() > 0:
+                accuracy_in_bin = accuracies[in_bin].float().mean()
+                avg_confidence_in_bin = confidences[in_bin].mean()
+                ece += torch.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
+
+        return ece
+
+class ModelWithTemperature(torch.nn.Module):
+    """
+    A thin decorator, which wraps a model with temperature scaling
+    model (nn.Module):
+        A classification neural network
+        NB: Output of the neural network should be the classification logits,
+            NOT the softmax (or log softmax)!
+    """
+    def __init__(self):
+        super(ModelWithTemperature, self).__init__()
+        # self.model = model
+        # self.plm_model = plm_model
+        self.temperature = torch.nn.Parameter(torch.ones(1))
+
+    # def forward(self, batch):
+    #     batch.pop("names")
+    #     logits = self.model(self.plm_model, batch)
+    #     return self.temperature_scale(logits)
+
+    def temperature_scale(self, logits):
+        """
+        Perform temperature scaling on logits
+        """
+        # Expand temperature to match the size of logits
+        temperature = self.temperature.unsqueeze(1).expand(logits.size(0), logits.size(1))
+        return logits / temperature
+
+    # This function probably should live outside of this class, but whatever
+    def set_temperature(self, model, plm_model, valid_loader, device):
+        """
+        Tune the tempearature of the model (using the validation set).
+        We're going to set it to optimize NLL.
+        valid_loader (DataLoader): validation set loader
+        """
+        model.to(device)
+        plm_model.to(device)
+        nll_criterion = torch.nn.CrossEntropyLoss().to(device)
+        ece_criterion = _ECELoss().to(device)
+
+        # First: collect all the logits and labels for the validation set
+        logits_list = []
+        labels_list = []
+        with torch.no_grad():
+            for batch in valid_loader:
+                batch.pop("names")
+                for k, v in batch.items():
+                    batch[k] = v.to(device)
+                logits = model(plm_model, batch)
+                logits_list.append(logits)
+                labels_list.append(batch['label'])
+            logits = torch.cat(logits_list)#.cuda()
+            labels = torch.cat(labels_list)#.cuda()
+
+        # Calculate NLL and ECE before temperature scaling
+        before_temperature_nll = nll_criterion(logits, labels).item()
+        before_temperature_ece = ece_criterion(logits, labels).item()
+        print('Before temperature - NLL: %.3f, ECE: %.3f' % (before_temperature_nll, before_temperature_ece))
+
+        # Next: optimize the temperature w.r.t. NLL
+        optimizer = torch.optim.LBFGS([self.temperature], lr=0.01, max_iter=50)
+
+        def eval():
+            optimizer.zero_grad()
+            loss = nll_criterion(self.temperature_scale(logits), labels)
+            loss.backward()
+            return loss
+        optimizer.step(eval)
+
+        # Calculate NLL and ECE after temperature scaling
+        after_temperature_nll = nll_criterion(self.temperature_scale(logits), labels).item()
+        after_temperature_ece = ece_criterion(self.temperature_scale(logits), labels).item()
+        print('Optimal temperature: %.3f' % self.temperature.item())
+        print('After temperature - NLL: %.3f, ECE: %.3f' % (after_temperature_nll, after_temperature_ece))
+
+        return self.temperature.item()
+
 # def infer(model, plm_model, dataloader, device, num_runs:int = NUM_RUNS):
 #     names, pred_labels, pred_probas, true_labels = [], [], [], []
 #     model.train()
@@ -263,346 +391,7 @@ def collate_fn(
 
 #     return names, pred_labels, pred_probas, true_labels
 
-"""
-    implementation of SWAG
-"""
-
-import gpytorch
-from torch.distributions.normal import Normal
-from torch.distributions import MultivariateNormal
-
-def flatten(lst):
-    tmp = [i.contiguous().view(-1, 1) for i in lst]
-    return torch.cat(tmp).view(-1)
-
-def unflatten_like(vector, likeTensorList):
-    # Takes a flat torch.tensor and unflattens it to a list of torch.tensors
-    #    shaped like likeTensorList
-    outList = []
-    i = 0
-    for tensor in likeTensorList:
-        # n = module._parameters[name].numel()
-        n = tensor.numel()
-        outList.append(vector[:, i : i + n].view(tensor.shape))
-        i += n
-    return outList
-
-def swag_parameters(module, params, no_cov_mat=True):
-    for name in list(module._parameters.keys()):
-        if module._parameters[name] is None:
-            continue
-        data = module._parameters[name].data
-        module._parameters.pop(name)
-        module.register_buffer("%s_mean" % name, data.new(data.size()).zero_())
-        module.register_buffer("%s_sq_mean" % name, data.new(data.size()).zero_())
-
-        if no_cov_mat is False:
-            module.register_buffer(
-                "%s_cov_mat_sqrt" % name, data.new_empty((0, data.numel())).zero_()
-            )
-
-        params.append((module, name))
-
-class SWAG(torch.nn.Module):
-    def __init__(
-        self, base, base_args, no_cov_mat=True, max_num_models=0, var_clamp=1e-30, initial_seq_layer_norm:bool=False, self_attn:bool=False
-    ):
-        super(SWAG, self).__init__()
-
-        self.register_buffer("n_models", torch.zeros([1], dtype=torch.long))
-        self.params = list()
-
-        self.no_cov_mat = no_cov_mat
-        self.max_num_models = max_num_models
-
-        self.var_clamp = var_clamp
-
-        self.base_args = base_args
-        self.initial_seq_layer_norm = initial_seq_layer_norm
-        self.self_attn = self_attn
-        self.base = base(self.base_args, self.initial_seq_layer_norm, self.self_attn)
-        # self.base = base
-        self.base.apply(
-            lambda module: swag_parameters(
-                module=module, params=self.params, no_cov_mat=self.no_cov_mat
-            )
-        )
-
-    def forward(self, plm_model, batch):
-        return self.base(plm_model, batch)
-
-    def sample(self, scale=1.0, cov=False, seed=None, block=False, fullrank=True):
-        if seed is not None:
-            torch.manual_seed(seed)
-
-        if not block:
-            self.sample_fullrank(scale, cov, fullrank)
-        else:
-            self.sample_blockwise(scale, cov, fullrank)
-
-    def sample_blockwise(self, scale, cov, fullrank):
-        for module, name in self.params:
-            mean = module.__getattr__("%s_mean" % name)
-
-            sq_mean = module.__getattr__("%s_sq_mean" % name)
-            eps = torch.randn_like(mean)
-
-            var = torch.clamp(sq_mean - mean ** 2, self.var_clamp)
-
-            scaled_diag_sample = scale * torch.sqrt(var) * eps
-
-            if cov is True:
-                cov_mat_sqrt = module.__getattr__("%s_cov_mat_sqrt" % name)
-                eps = cov_mat_sqrt.new_empty((cov_mat_sqrt.size(0), 1)).normal_()
-                cov_sample = (
-                    scale / ((self.max_num_models - 1) ** 0.5)
-                ) * cov_mat_sqrt.t().matmul(eps).view_as(mean)
-
-                if fullrank:
-                    w = mean + scaled_diag_sample + cov_sample
-                else:
-                    w = mean + scaled_diag_sample
-
-            else:
-                w = mean + scaled_diag_sample
-
-            module.__setattr__(name, w)
-
-    def sample_fullrank(self, scale, cov, fullrank):
-        scale_sqrt = scale ** 0.5
-
-        mean_list = []
-        sq_mean_list = []
-
-        if cov:
-            cov_mat_sqrt_list = []
-
-        for (module, name) in self.params:
-            mean = module.__getattr__("%s_mean" % name)
-            sq_mean = module.__getattr__("%s_sq_mean" % name)
-
-            if cov:
-                cov_mat_sqrt = module.__getattr__("%s_cov_mat_sqrt" % name)
-                cov_mat_sqrt_list.append(cov_mat_sqrt.cpu())
-
-            mean_list.append(mean.cpu())
-            sq_mean_list.append(sq_mean.cpu())
-
-        mean = flatten(mean_list)
-        sq_mean = flatten(sq_mean_list)
-
-        # draw diagonal variance sample
-        var = torch.clamp(sq_mean - mean ** 2, self.var_clamp)
-        var_sample = var.sqrt() * torch.randn_like(var, requires_grad=False)
-
-        # if covariance draw low rank sample
-        if cov:
-            cov_mat_sqrt = torch.cat(cov_mat_sqrt_list, dim=1)
-
-            cov_sample = cov_mat_sqrt.t().matmul(
-                cov_mat_sqrt.new_empty(
-                    (cov_mat_sqrt.size(0),), requires_grad=False
-                ).normal_()
-            )
-            cov_sample /= (self.max_num_models - 1) ** 0.5
-
-            rand_sample = var_sample + cov_sample
-        else:
-            rand_sample = var_sample
-
-        # update sample with mean and scale
-        sample = mean + scale_sqrt * rand_sample
-        sample = sample.unsqueeze(0)
-
-        # unflatten new sample like the mean sample
-        samples_list = unflatten_like(sample, mean_list)
-
-        for (module, name), sample in zip(self.params, samples_list):
-            module.__setattr__(name, sample.cuda())
-
-    def collect_model(self, base_model):
-        for (module, name), base_param in zip(self.params, base_model.parameters()):
-            mean = module.__getattr__("%s_mean" % name)
-            sq_mean = module.__getattr__("%s_sq_mean" % name)
-
-            # first moment
-            mean = mean * self.n_models.item() / (
-                self.n_models.item() + 1.0
-            ) + base_param.data / (self.n_models.item() + 1.0)
-
-            # second moment
-            sq_mean = sq_mean * self.n_models.item() / (
-                self.n_models.item() + 1.0
-            ) + base_param.data ** 2 / (self.n_models.item() + 1.0)
-
-            # square root of covariance matrix
-            if self.no_cov_mat is False:
-                cov_mat_sqrt = module.__getattr__("%s_cov_mat_sqrt" % name)
-
-                # block covariance matrices, store deviation from current mean
-                dev = (base_param.data - mean).view(-1, 1)
-                cov_mat_sqrt = torch.cat((cov_mat_sqrt, dev.view(-1, 1).t()), dim=0)
-
-                # remove first column if we have stored too many models
-                if (self.n_models.item() + 1) > self.max_num_models:
-                    cov_mat_sqrt = cov_mat_sqrt[1:, :]
-                module.__setattr__("%s_cov_mat_sqrt" % name, cov_mat_sqrt)
-
-            module.__setattr__("%s_mean" % name, mean)
-            module.__setattr__("%s_sq_mean" % name, sq_mean)
-        self.n_models.add_(1)
-
-    def load_state_dict(self, state_dict, strict=True):
-        if not self.no_cov_mat:
-            n_models = state_dict["n_models"].item()
-            rank = min(n_models, self.max_num_models)
-            for module, name in self.params:
-                mean = module.__getattr__("%s_mean" % name)
-                module.__setattr__(
-                    "%s_cov_mat_sqrt" % name,
-                    mean.new_empty((rank, mean.numel())).zero_(),
-                )
-        super(SWAG, self).load_state_dict(state_dict, strict)
-
-    def export_numpy_params(self, export_cov_mat=False):
-        mean_list = []
-        sq_mean_list = []
-        cov_mat_list = []
-
-        for module, name in self.params:
-            mean_list.append(module.__getattr__("%s_mean" % name).cpu().numpy().ravel())
-            sq_mean_list.append(
-                module.__getattr__("%s_sq_mean" % name).cpu().numpy().ravel()
-            )
-            if export_cov_mat:
-                cov_mat_list.append(
-                    module.__getattr__("%s_cov_mat_sqrt" % name).cpu().numpy().ravel()
-                )
-        mean = np.concatenate(mean_list)
-        sq_mean = np.concatenate(sq_mean_list)
-        var = sq_mean - np.square(mean)
-
-        if export_cov_mat:
-            return mean, var, cov_mat_list
-        else:
-            return mean, var
-
-    def import_numpy_weights(self, w):
-        k = 0
-        for module, name in self.params:
-            mean = module.__getattr__("%s_mean" % name)
-            s = np.prod(mean.shape)
-            module.__setattr__(name, mean.new_tensor(w[k : k + s].reshape(mean.shape)))
-            k += s
-
-    def generate_mean_var_covar(self):
-        mean_list = []
-        var_list = []
-        cov_mat_root_list = []
-        for module, name in self.params:
-            mean = module.__getattr__("%s_mean" % name)
-            sq_mean = module.__getattr__("%s_sq_mean" % name)
-            cov_mat_sqrt = module.__getattr__("%s_cov_mat_sqrt" % name)
-
-            mean_list.append(mean)
-            var_list.append(sq_mean - mean ** 2.0)
-            cov_mat_root_list.append(cov_mat_sqrt)
-        return mean_list, var_list, cov_mat_root_list
-
-    def compute_ll_for_block(self, vec, mean, var, cov_mat_root):
-        vec = flatten(vec)
-        mean = flatten(mean)
-        var = flatten(var)
-
-        # cov_mat_lt = RootLazyTensor(cov_mat_root.t())
-        # var_lt = DiagLazyTensor(var + 1e-6)
-        # covar_lt = AddedDiagLazyTensor(var_lt, cov_mat_lt)
-        # qdist = MultivariateNormal(mean, covar_lt)
-
-        cov_root = cov_mat_root.t()  # [D, r]
-        low_rank = cov_root @ cov_root.t()  # [D, D]
-        cov = low_rank + torch.diag(var + 1e-6)
-        qdist = MultivariateNormal(mean, cov)
-
-        with gpytorch.settings.num_trace_samples(
-            1
-        ) and gpytorch.settings.max_cg_iterations(25):
-            return qdist.log_prob(vec)
-
-    def block_logdet(self, var, cov_mat_root):
-        var = flatten(var)
-
-        # cov_mat_lt = RootLazyTensor(cov_mat_root.t())
-        # var_lt = DiagLazyTensor(var + 1e-6)
-        # covar_lt = AddedDiagLazyTensor(var_lt, cov_mat_lt)
-
-        cov_root = cov_mat_root.t()
-        low_rank = cov_root @ cov_root.t()
-        cov = low_rank + torch.diag(var + 1e-6)
-        
-        assert torch.linalg.slogdet(cov).sign > 0
-
-        return torch.linalg.slogdet(cov).logabsdet #covar_lt.log_det()
-
-    def block_logll(self, param_list, mean_list, var_list, cov_mat_root_list):
-        full_logprob = 0
-        for i, (param, mean, var, cov_mat_root) in enumerate(
-            zip(param_list, mean_list, var_list, cov_mat_root_list)
-        ):
-            # print('Block: ', i)
-            block_ll = self.compute_ll_for_block(param, mean, var, cov_mat_root)
-            full_logprob += block_ll
-
-        return full_logprob
-
-    def full_logll(self, param_list, mean_list, var_list, cov_mat_root_list):
-        cov_mat_root = torch.cat(cov_mat_root_list, dim=1)
-        mean_vector = flatten(mean_list)
-        var_vector = flatten(var_list)
-        param_vector = flatten(param_list)
-        return self.compute_ll_for_block(
-            param_vector, mean_vector, var_vector, cov_mat_root
-        )
-
-    def compute_logdet(self, block=False):
-        _, var_list, covar_mat_root_list = self.generate_mean_var_covar()
-
-        if block:
-            full_logdet = 0
-            for (var, cov_mat_root) in zip(var_list, covar_mat_root_list):
-                block_logdet = self.block_logdet(var, cov_mat_root)
-                full_logdet += block_logdet
-        else:
-            var_vector = flatten(var_list)
-            cov_mat_root = torch.cat(covar_mat_root_list, dim=1)
-            full_logdet = self.block_logdet(var_vector, cov_mat_root)
-
-        return full_logdet
-
-    def diag_logll(self, param_list, mean_list, var_list):
-        logprob = 0.0
-        for param, mean, scale in zip(param_list, mean_list, var_list):
-            logprob += Normal(mean, scale).log_prob(param).sum()
-        return logprob
-
-    def compute_logprob(self, vec=None, block=False, diag=False):
-        mean_list, var_list, covar_mat_root_list = self.generate_mean_var_covar()
-
-        if vec is None:
-            param_list = [getattr(param, name) for param, name in self.params]
-        else:
-            param_list = unflatten_like(vec, mean_list)
-
-        if diag:
-            return self.diag_logll(param_list, mean_list, var_list)
-        elif block is True:
-            return self.block_logll(
-                param_list, mean_list, var_list, covar_mat_root_list
-            )
-        else:
-            return self.full_logll(param_list, mean_list, var_list, covar_mat_root_list)
-
-def infer(model, plm_model, dataloader, device, num_runs:int = NUM_RUNS):
+def infer(model, plm_model, dataloader, device, temperature:float=1.0):
     names, pred_labels, pred_probas, true_labels = [], [], [], []
     # model.train()
     for batch in tqdm(dataloader):
@@ -611,22 +400,11 @@ def infer(model, plm_model, dataloader, device, num_runs:int = NUM_RUNS):
         for k, v in batch.items():
             batch[k] = v.to(device)
 
-        logits_list = []
-        for _ in range(num_runs):
-            with torch.no_grad():
-                model.sample(scale=1, cov=True)
-                logits = model(plm_model, batch)
-            logits_list.append(logits[:,None,:])
-        logits_list = torch.cat(logits_list, dim=1)
+        with torch.no_grad():
+            logits = model(plm_model, batch)/temperature
 
-        # with torch.no_grad():
-        #     logits = model(plm_model, batch)
-
-        pred_labels.extend(logits_list.argmax(dim=-1).cpu().numpy())
-        pred_probas.extend(logits_list.softmax(dim=-1).cpu().numpy())
-
-        # pred_labels.extend(logits.argmax(dim=-1).cpu().numpy())
-        # pred_probas.extend(logits.softmax(dim=-1)[:,1].cpu().numpy())
+        pred_labels.extend(logits.argmax(dim=-1).cpu().numpy())
+        pred_probas.extend(logits.softmax(dim=-1)[:,1].cpu().numpy())
 
     return names, pred_labels, pred_probas, true_labels
 
@@ -634,8 +412,14 @@ pred_dict = {}
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+val_dataset, val_token_num = process_dataset_from_json(
+    file=val_datafilepath, 
+    max_seq_len=None,
+    structure_seqs=model_params["structure_seqs"],
+)
+
 test_dataset, test_token_num = process_dataset_from_json(
-    file=datafilepath, 
+    file=test_datafilepath, 
     max_seq_len=None,
     structure_seqs=model_params["structure_seqs"],
 )
@@ -651,19 +435,20 @@ if 'esm3_structure_seq' in model_params['structure_seqs']:
 else:
     model_params['vocab_size'] = vocab_size
 
-# model = AdapterModel(argparse.Namespace(**model_params), initial_seq_layer_norm=True, self_attn=wSelfAttention).to(device).eval()
-
-model = SWAG(AdapterModel, 
-            argparse.Namespace(**model_params), 
-            initial_seq_layer_norm=True, self_attn=wSelfAttention,
-            no_cov_mat=False, 
-            max_num_models=64).to(device).eval()
+model = AdapterModel(argparse.Namespace(**model_params), initial_seq_layer_norm=True, self_attn=wSelfAttention).to(device).eval()
 
 model_name = "esmc_wiln"
 
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
 model.load_state_dict(torch.load(model_path, weights_only=False), strict=True)
 # print(model)
+
+val_loader = DataLoader(
+        val_dataset,
+        num_workers=4,
+        collate_fn=collate_fn,
+        batch_sampler=BatchSampler(val_token_num, 40000, False)
+    )
 
 test_loader = DataLoader(
         test_dataset,
@@ -672,8 +457,11 @@ test_loader = DataLoader(
         batch_sampler=BatchSampler(test_token_num, 40000, False)
     )
 
+temp_model = ModelWithTemperature().to(device)
+temperature = temp_model.set_temperature(model, plm_model, val_loader, device=device)
+
 with torch.no_grad():
-    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device)
+    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device, temperature)
 
 for name, pred_label, pred_prob, true_label in zip(names, pred_labels, pred_probas, true_labels):
     pred_dict[name] = {}
@@ -693,18 +481,19 @@ if 'esm3_structure_seq' in model_params['structure_seqs']:
 else:
     model_params['vocab_size'] = vocab_size
 
-# model = AdapterModel(argparse.Namespace(**model_params), self_attn=wSelfAttention).to(device).eval()
-
-model = SWAG(AdapterModel, 
-            argparse.Namespace(**model_params), 
-            self_attn=wSelfAttention,
-            no_cov_mat=False, 
-            max_num_models=64).to(device).eval()
+model = AdapterModel(argparse.Namespace(**model_params), self_attn=wSelfAttention).to(device).eval()
 
 model_name = "prost_t5"
 
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
 model.load_state_dict(torch.load(model_path, weights_only=False), strict=True)
+
+val_loader = DataLoader(
+        val_dataset,
+        num_workers=4,
+        collate_fn=collate_fn,
+        batch_sampler=BatchSampler(val_token_num, 40000, False)
+    )
 
 test_loader = DataLoader(
         test_dataset,
@@ -713,8 +502,11 @@ test_loader = DataLoader(
         batch_sampler=BatchSampler(test_token_num, 40000, False)
     )
 
+temp_model = ModelWithTemperature().to(device)
+temperature = temp_model.set_temperature(model, plm_model, val_loader, device=device)
+
 with torch.no_grad():
-    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device)
+    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device, temperature)
 
 for name, pred_label, pred_prob in zip(names, pred_labels, pred_probas):
     # pred_dict[name] = {}
@@ -734,16 +526,19 @@ if 'esm3_structure_seq' in model_params['structure_seqs']:
 else:
     model_params['vocab_size'] = vocab_size
 
-model = SWAG(AdapterModel, 
-            argparse.Namespace(**model_params), 
-            self_attn=wSelfAttention,
-            no_cov_mat=False, 
-            max_num_models=64).to(device).eval()
+model = AdapterModel(argparse.Namespace(**model_params), self_attn=wSelfAttention).to(device).eval()
 
 model_name = "ankh"
 
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
 model.load_state_dict(torch.load(model_path, weights_only=False), strict=True)
+
+val_loader = DataLoader(
+        val_dataset,
+        num_workers=4,
+        collate_fn=collate_fn,
+        batch_sampler=BatchSampler(val_token_num, 40000, False)
+    )
 
 test_loader = DataLoader(
         test_dataset,
@@ -752,8 +547,11 @@ test_loader = DataLoader(
         batch_sampler=BatchSampler(test_token_num, 40000, False)
     )
 
+temp_model = ModelWithTemperature().to(device)
+temperature = temp_model.set_temperature(model, plm_model, val_loader, device=device)
+
 with torch.no_grad():
-    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device)
+    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device, temperature)
 
 for name, pred_label, pred_prob in zip(names, pred_labels, pred_probas):
     # pred_dict[name] = {}
@@ -773,16 +571,19 @@ if 'esm3_structure_seq' in model_params['structure_seqs']:
 else:
     model_params['vocab_size'] = vocab_size
 
-model = SWAG(AdapterModel, 
-            argparse.Namespace(**model_params), 
-            self_attn=wSelfAttention,
-            no_cov_mat=False, 
-            max_num_models=64).to(device).eval()
+model = AdapterModel(argparse.Namespace(**model_params), self_attn=wSelfAttention).to(device).eval()
 
 model_name = "esm2"
 
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
 model.load_state_dict(torch.load(model_path, weights_only=False, map_location=device), strict=True)
+
+val_loader = DataLoader(
+        val_dataset,
+        num_workers=4,
+        collate_fn=collate_fn,
+        batch_sampler=BatchSampler(val_token_num, 40000, False)
+    )
 
 test_loader = DataLoader(
         test_dataset,
@@ -791,8 +592,11 @@ test_loader = DataLoader(
         batch_sampler=BatchSampler(test_token_num, 40000, False)
     )
 
+temp_model = ModelWithTemperature().to(device)
+temperature = temp_model.set_temperature(model, plm_model, val_loader, device=device)
+
 with torch.no_grad():
-    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device)
+    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device, temperature)
 
 for name, pred_label, pred_prob in zip(names, pred_labels, pred_probas):
     # pred_dict[name] = {}
@@ -812,16 +616,19 @@ if 'esm3_structure_seq' in model_params['structure_seqs']:
 else:
     model_params['vocab_size'] = vocab_size
 
-model = SWAG(AdapterModel, 
-            argparse.Namespace(**model_params), 
-            self_attn=wSelfAttention,
-            no_cov_mat=False, 
-            max_num_models=64).to(device).eval()
+model = AdapterModel(argparse.Namespace(**model_params), self_attn=wSelfAttention).to(device).eval()
 
 model_name = "prot_bert"
 
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
 model.load_state_dict(torch.load(model_path, weights_only=False, map_location=device), strict=True)
+
+val_loader = DataLoader(
+        val_dataset,
+        num_workers=4,
+        collate_fn=collate_fn,
+        batch_sampler=BatchSampler(val_token_num, 40000, False)
+    )
 
 test_loader = DataLoader(
         test_dataset,
@@ -830,8 +637,11 @@ test_loader = DataLoader(
         batch_sampler=BatchSampler(test_token_num, 40000, False)
     )
 
+temp_model = ModelWithTemperature().to(device)
+temperature = temp_model.set_temperature(model, plm_model, val_loader, device=device)
+
 with torch.no_grad():
-    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device)
+    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device, temperature)
 
 for name, pred_label, pred_prob in zip(names, pred_labels, pred_probas):
     # pred_dict[name] = {}

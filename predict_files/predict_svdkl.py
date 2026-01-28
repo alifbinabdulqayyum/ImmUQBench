@@ -16,99 +16,22 @@ import os
 from esm.models.esmc import ESMC
 from esm.tokenization import get_esmc_model_tokenizers
 from tqdm import tqdm
+import sys
+sys.path.append(os.getcwd())
 
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.nn.utils import spectral_norm
-
-class MLP(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden_dim, num_layers,
-                 dropout_rate=0.0, spect_norm=False):
-        super(MLP, self).__init__()
-        layers = []
-
-        if num_layers == 0:
-            final_linear = nn.Linear(input_dim, output_dim)
-            layers.append(spectral_norm(final_linear) if spect_norm else final_linear)
-
-        else:
-            layers.append(nn.Dropout(p=dropout_rate))
-            layers.append(nn.Linear(input_dim, hidden_dim))
-            layers.append(nn.ReLU(inplace=True))
-            layers.append(nn.LayerNorm(hidden_dim))
-
-            for _ in range(num_layers - 2):
-                layers.append(nn.Dropout(p=dropout_rate))
-                layers.append(nn.Linear(hidden_dim, hidden_dim))
-                layers.append(nn.ReLU(inplace=True))
-                layers.append(nn.LayerNorm(hidden_dim))
-
-            final_linear = nn.Linear(hidden_dim, output_dim)
-            final_linear = spectral_norm(final_linear) if spect_norm else final_linear
-            layers.append(final_linear)
-
-        self.network = nn.Sequential(*layers)
-
-    def forward(self, x):
-        return self.network(x)
-
-class FEDL(nn.Module):
-    def __init__(self,
-                 backbone_model,
-                 dropout_rate,
-                 embedding_dim,
-                 num_classes,
-                 spect_norm):
-        
-        super().__init__()
-        
-        self.f = backbone_model
-        self.g_alpha = MLP(embedding_dim, num_classes, 0,
-                         0, dropout_rate, spect_norm)#.to(device)
-        self.g_tau = MLP(embedding_dim, 1, 0,
-                         0, dropout_rate, spect_norm)#.to(device)
-        self.g_p = MLP(embedding_dim, num_classes, 0,
-                       0, dropout_rate, spect_norm)#.to(device)
-
-
-    def forward(self, plm_model, batch, fix_tau=False, fix_p=None):
-        features = self.f(plm_model, batch)
-        if isinstance(features, (tuple, list)):
-            features = features[0]
-        if len(features.shape) > 2:
-            features = torch.flatten(features, 1)
-    
-        alpha = torch.exp(self.g_alpha(features))        
-        p = F.softmax(self.g_p(features), dim=1)         
-        tau = F.softplus(self.g_tau(features))           
-    
-        alpha0 = alpha.sum(dim=1, keepdim=True)          
-    
-        if fix_tau:
-            tau = torch.ones_like(tau)                  
-    
-        if fix_p == "dirichlet":
-            p = alpha / alpha0                           
-            
-        elif fix_p == "uniform":
-            p = torch.full_like(p, 1.0 / alpha.size(1))  
-
-        return alpha, p, tau
+FEAT_DIM = 64
 
 model_params = {
     'hidden_size': None,  # 将由PLM模型自动设置
     'num_attention_heads': 8,
     'attention_probs_dropout_prob': 0,
-    'num_labels': 2,
+    'num_labels': FEAT_DIM, #2,
     'pooling_method': 'attention1d',
     'pooling_dropout': 0.1,
     'return_attentions': False,
     'structure_seqs': ['ez_descriptor', 'foldseek_seq', 'esm3_structure_seq'], 
     'vocab_size': 4100,
 }
-
-K = 2
-HIDDEN_DIM = 256
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -135,13 +58,13 @@ mutation_rate = "" #"full" # #0.001
 # ckpt_root = "./ckpt-SDAP2-woutFoldSeek"
 
 if 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-    ckpt_root = "./ckpt-{}Immunogen-FEDL".format(datasource)
+    ckpt_root = "./ckpt-{}Immunogen-SVDKL".format(datasource)
 elif not 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-    ckpt_root = "./ckpt-{}Immunogen-FEDL-woutFoldSeek".format(datasource)
+    ckpt_root = "./ckpt-{}Immunogen-SVDKL-woutFoldSeek".format(datasource)
 elif 'foldseek_seq' in model_params['structure_seqs'] and not 'esm3_structure_seq' in model_params['structure_seqs']:
-    ckpt_root = "./ckpt-{}Immunogen-FEDL-woutESM3".format(datasource)
+    ckpt_root = "./ckpt-{}Immunogen-SVDKL-woutESM3".format(datasource)
 else:
-    ckpt_root = "./ckpt-{}Immunogen-FEDL-only-ez".format(datasource)
+    ckpt_root = "./ckpt-{}Immunogen-SVDKL-only-ez".format(datasource)
 
 if args.seed is not None:
     ckpt_root += f"-seed-{args.seed}"
@@ -150,8 +73,7 @@ if args.seed is not None:
 # datafilepath="./SDAP2_DATA/json_files/{}_data_with_label.json".format(testset)
 datafilepath="./dataset/{}Binary/ESMFold/test.json".format(targetsource)
 
-# result_save_dir = "./Predict-Results-VBT-UQ-DROPOUT"
-result_save_dir = "./Predict-Results-VBT-FEDL"
+result_save_dir = "./Predict-Results-VBT-UQ-SVDKL"
 
 if args.seed is not None:
     result_save_dir += f"-seed-{args.seed}"
@@ -161,26 +83,81 @@ os.makedirs(result_save_dir, exist_ok=True)
 # pred_filename = "ToxDL_wSelfAttention_{}_woutESM3.json".format(testset)
 # pred_filename = "{}_test.json".format(datasource)
 
-if datasource == targetsource:
-    if 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-        pred_filename = "{}_test.json".format(datasource)
-    elif not 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-        pred_filename = "{}_test_woutFoldSeek.json".format(datasource)
-    elif 'foldseek_seq' in model_params['structure_seqs'] and not 'esm3_structure_seq' in model_params['structure_seqs']:
-        pred_filename = "{}_test_woutESM3.json".format(datasource)
-    else:
-        pred_filename = "{}_test_only_ez.json".format(datasource)
+# if 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
+#     pred_filename = "{}_test.json".format(datasource)
+# elif not 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
+#     pred_filename = "{}_test_woutFoldSeek.json".format(datasource)
+# elif 'foldseek_seq' in model_params['structure_seqs'] and not 'esm3_structure_seq' in model_params['structure_seqs']:
+#     pred_filename = "{}_test_woutESM3.json".format(datasource)
+# else:
+#     pred_filename = "{}_test_only_ez.json".format(datasource)
+
+if 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
+    pred_filename = "data_{}_target_{}_test.json".format(datasource, targetsource)
+elif not 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
+    pred_filename = "data_{}_target_{}_test_woutFoldSeek.json".format(datasource, targetsource)
+elif 'foldseek_seq' in model_params['structure_seqs'] and not 'esm3_structure_seq' in model_params['structure_seqs']:
+    pred_filename = "data_{}_target_{}_test_woutESM3.json".format(datasource, targetsource)
 else:
-    if 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-        pred_filename = "data_{}_target_{}_test.json".format(datasource, targetsource)
-    elif not 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-        pred_filename = "data_{}_target_{}_test_woutFoldSeek.json".format(datasource, targetsource)
-    elif 'foldseek_seq' in model_params['structure_seqs'] and not 'esm3_structure_seq' in model_params['structure_seqs']:
-        pred_filename = "data_{}_target_{}_test_woutESM3.json".format(datasource, targetsource)
-    else:
-        pred_filename = "data_{}_target_{}_test_only_ez.json".format(datasource, targetsource)
+    pred_filename = "data_{}_target_{}_test_only_ez.json".format(datasource, targetsource)
 
 wSelfAttention = False
+
+import gpytorch
+import math
+
+class GaussianProcessLayer(gpytorch.models.ApproximateGP):
+    def __init__(self, num_dim, grid_bounds=(-10., 10.), grid_size=64):
+        variational_distribution = gpytorch.variational.CholeskyVariationalDistribution(
+            num_inducing_points=grid_size, batch_shape=torch.Size([num_dim])
+        )
+
+        # Our base variational strategy is a GridInterpolationVariationalStrategy,
+        # which places variational inducing points on a Grid
+        # We wrap it with a IndependentMultitaskVariationalStrategy so that our output is a vector-valued GP
+        variational_strategy = gpytorch.variational.IndependentMultitaskVariationalStrategy(
+            gpytorch.variational.GridInterpolationVariationalStrategy(
+                self, grid_size=grid_size, grid_bounds=[grid_bounds],
+                variational_distribution=variational_distribution,
+            ), num_tasks=num_dim,
+        )
+        super().__init__(variational_strategy)
+
+        self.covar_module = gpytorch.kernels.ScaleKernel(
+            gpytorch.kernels.RBFKernel(
+                lengthscale_prior=gpytorch.priors.SmoothedBoxPrior(
+                    math.exp(-1), math.exp(1), sigma=0.1, transform=torch.exp
+                )
+            )
+        )
+        self.mean_module = gpytorch.means.ConstantMean()
+        self.grid_bounds = grid_bounds
+
+    def forward(self, x):
+        mean = self.mean_module(x)
+        covar = self.covar_module(x)
+        return gpytorch.distributions.MultivariateNormal(mean, covar)
+    
+class DKLModel(gpytorch.Module):
+    def __init__(self, feature_extractor, num_dim, grid_bounds=(-10., 10.)):
+        super(DKLModel, self).__init__()
+        self.feature_extractor = feature_extractor
+        self.gp_layer = GaussianProcessLayer(num_dim=num_dim, grid_bounds=grid_bounds)
+        self.grid_bounds = grid_bounds
+        self.num_dim = num_dim
+
+        # This module will scale the NN features so that they're nice values
+        self.scale_to_bounds = gpytorch.utils.grid.ScaleToBounds(self.grid_bounds[0], self.grid_bounds[1])
+
+    def forward(self, plm_model, batch):
+        features = self.feature_extractor(plm_model, batch)
+        features = self.scale_to_bounds(features)
+        
+        # This next line makes it so that we learn a GP for each feature
+        features = features.transpose(-1, -2).unsqueeze(-1)
+        # print(features.shape)
+        res = self.gp_layer(features)
+        return res
 
 def process_data_line(
     data, 
@@ -298,55 +275,22 @@ def collate_fn(
         data_dict["esm3_structure_input_ids"] = esm3_structure_input_ids
     return data_dict
 
-def compute_mu(alpha, p, tau):
-    alpha0 = alpha.sum(dim=1, keepdim=True)  
-    mu = (alpha + tau * p) / (alpha0 + tau)
-  
-    return mu
-    
-def compute_var(alpha, p, tau):
-    alpha0 = alpha.sum(dim=1, keepdim=True) 
-    
-    mu = (alpha + tau * p) / (alpha0 + tau)
-    term1 = mu * (1 - mu) / (alpha0 + tau + 1)
-    term2 = (tau**2) * p * (1 - p) / ((alpha0 + tau) * (alpha0 + tau + 1))
-    var = term1 + term2       
-        
-    return var
+def infer(model, likelihood, plm_model, dataloader, device, num_runs:int = NUM_RUNS):
+    names, pred_labels, pred_probas, true_labels = [], [], [], []
+    with gpytorch.settings.num_likelihood_samples(NUM_RUNS):
+        for batch in tqdm(dataloader):
+            names.extend(batch.pop("names"))
+            true_labels.extend(batch.pop("label").cpu().numpy())
+            for k, v in batch.items():
+                batch[k] = v.to(device)
 
-def TU(mu, var):
-    return 1 - (mu**2).sum(1)
+            output = likelihood(model(plm_model, batch))
+            logits_list = output.logits.transpose(1, 0)
 
-def AU(mu, var):
-    return TU(mu, var) - EU(mu, var)
+            pred_labels.extend(logits_list.argmax(dim=-1).cpu().numpy())
+            pred_probas.extend(logits_list.softmax(dim=-1).cpu().numpy())
 
-def EU(mu, var):
-    return var.sum(1)
-
-def infer(model, plm_model, dataloader, device, num_runs:int = NUM_RUNS):
-    names, pred_labels, pred_probas, true_labels, pred_u, pred_au, pred_eu = [], [], [], [], [], [], []
-    # model.train()
-    for batch in tqdm(dataloader):
-        names.extend(batch.pop("names"))
-        true_labels.extend(batch.pop("label").cpu().numpy())
-        for k, v in batch.items():
-            batch[k] = v.to(device)
-
-        with torch.no_grad():
-            alpha, p, tau = model(plm_model, batch, False, "dirichlet")
-            mu = compute_mu(alpha, p, tau)
-            var = compute_var(alpha, p, tau)
-            u = TU(mu, var)
-            eu = EU(mu, var)
-            au = AU(mu, var)
-
-        pred_labels.extend(mu.argmax(dim=-1).cpu().numpy())
-        pred_probas.extend(mu[:,1].cpu().numpy())
-        pred_u.extend(u.cpu().numpy())
-        pred_au.extend(au.cpu().numpy())
-        pred_eu.extend(eu.cpu().numpy())
-
-    return names, pred_labels, pred_probas, pred_u, pred_au, pred_eu, true_labels
+    return names, pred_labels, pred_probas, true_labels
 
 pred_dict = {}
 
@@ -369,22 +313,16 @@ if 'esm3_structure_seq' in model_params['structure_seqs']:
 else:
     model_params['vocab_size'] = vocab_size
 
-model_params['num_labels'] = HIDDEN_DIM
-backbone_model = AdapterModel(argparse.Namespace(**model_params), initial_seq_layer_norm=True, self_attn=wSelfAttention)
-model_params['num_labels'] = 2
-
-model = FEDL(
-    backbone_model=backbone_model, 
-    dropout_rate=model_params['pooling_dropout'], 
-    embedding_dim=HIDDEN_DIM, 
-    num_classes=model_params['num_labels'],
-    spect_norm=True).to(device).eval()
+feat_model = AdapterModel(argparse.Namespace(**model_params), initial_seq_layer_norm=True, self_attn=wSelfAttention)#.to(device).eval()
 
 model_name = "esmc_wiln"
 
+model = DKLModel(feat_model, num_dim=FEAT_DIM).to(device).eval()
+likelihood = gpytorch.likelihoods.SoftmaxLikelihood(num_features=FEAT_DIM, num_classes=2).to(device).eval()
+
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
-model.load_state_dict(torch.load(model_path, weights_only=False), strict=True)
-# print(model)
+model.load_state_dict(torch.load(model_path)['model'])
+likelihood.load_state_dict(torch.load(model_path)['likelihood'])
 
 test_loader = DataLoader(
         test_dataset,
@@ -394,16 +332,13 @@ test_loader = DataLoader(
     )
 
 with torch.no_grad():
-    names, pred_labels, pred_probas, pred_us, pred_aus, pred_eus, true_labels = infer(model, plm_model, test_loader, device)
+    names, pred_labels, pred_probas, true_labels = infer(model, likelihood, plm_model, test_loader, device)
 
-for name, pred_label, pred_prob, pred_u, pred_au, pred_eu, true_label in zip(names, pred_labels, pred_probas, pred_us, pred_aus, pred_eus, true_labels):
+for name, pred_label, pred_prob, true_label in zip(names, pred_labels, pred_probas, true_labels):
     pred_dict[name] = {}
-    pred_dict[name]['pred_label'], pred_dict[name]['pred_prob'], pred_dict[name]['pred_u'], pred_dict[name]['pred_au'], pred_dict[name]['pred_eu'] = {}, {}, {}, {}, {}
+    pred_dict[name]['pred_label'], pred_dict[name]['pred_prob'] = {}, {}
     pred_dict[name]['pred_label'][plm_model_name] = np.int8(pred_label)
     pred_dict[name]['pred_prob'][plm_model_name] = pred_prob
-    pred_dict[name]['pred_u'][plm_model_name] = pred_u
-    pred_dict[name]['pred_au'][plm_model_name] = pred_au
-    pred_dict[name]['pred_eu'][plm_model_name] = pred_eu
     pred_dict[name]['true_label'] = np.int8(true_label)
 
 plm_model_name = "Rostlab/ProstT5"
@@ -417,21 +352,16 @@ if 'esm3_structure_seq' in model_params['structure_seqs']:
 else:
     model_params['vocab_size'] = vocab_size
 
-model_params['num_labels'] = HIDDEN_DIM
-backbone_model = AdapterModel(argparse.Namespace(**model_params), self_attn=wSelfAttention)
-model_params['num_labels'] = 2
-
-model = FEDL(
-    backbone_model=backbone_model, 
-    dropout_rate=model_params['pooling_dropout'], 
-    embedding_dim=HIDDEN_DIM, 
-    num_classes=model_params['num_labels'],
-    spect_norm=True).to(device).eval()
+feat_model = AdapterModel(argparse.Namespace(**model_params), self_attn=wSelfAttention)#.to(device).eval()
 
 model_name = "prost_t5"
 
+model = DKLModel(feat_model, num_dim=FEAT_DIM).to(device).eval()
+likelihood = gpytorch.likelihoods.SoftmaxLikelihood(num_features=FEAT_DIM, num_classes=2).to(device).eval()
+
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
-model.load_state_dict(torch.load(model_path, weights_only=False), strict=True)
+model.load_state_dict(torch.load(model_path)['model'])
+likelihood.load_state_dict(torch.load(model_path)['likelihood'])
 
 test_loader = DataLoader(
         test_dataset,
@@ -441,16 +371,13 @@ test_loader = DataLoader(
     )
 
 with torch.no_grad():
-    names, pred_labels, pred_probas, pred_us, pred_aus, pred_eus, true_labels = infer(model, plm_model, test_loader, device)
+    names, pred_labels, pred_probas, true_labels = infer(model, likelihood, plm_model, test_loader, device)
 
-for name, pred_label, pred_prob, pred_u, pred_au, pred_eu, true_label in zip(names, pred_labels, pred_probas, pred_us, pred_aus, pred_eus, true_labels):
+for name, pred_label, pred_prob in zip(names, pred_labels, pred_probas):
     # pred_dict[name] = {}
     # pred_dict[name]['pred_label'], pred_dict[name]['pred_prob'] = {}, {}
     pred_dict[name]['pred_label'][plm_model_name] = np.int8(pred_label)
     pred_dict[name]['pred_prob'][plm_model_name] = pred_prob
-    pred_dict[name]['pred_u'][plm_model_name] = pred_u
-    pred_dict[name]['pred_au'][plm_model_name] = pred_au
-    pred_dict[name]['pred_eu'][plm_model_name] = pred_eu
     # pred_dict[name]['true_label'] = true_label
 
 plm_model_name = "ElnaggarLab/ankh-large"
@@ -464,21 +391,16 @@ if 'esm3_structure_seq' in model_params['structure_seqs']:
 else:
     model_params['vocab_size'] = vocab_size
 
-model_params['num_labels'] = HIDDEN_DIM
-backbone_model = AdapterModel(argparse.Namespace(**model_params), self_attn=wSelfAttention)
-model_params['num_labels'] = 2
-
-model = FEDL(
-    backbone_model=backbone_model, 
-    dropout_rate=model_params['pooling_dropout'], 
-    embedding_dim=HIDDEN_DIM, 
-    num_classes=model_params['num_labels'],
-    spect_norm=True).to(device).eval()
+feat_model = AdapterModel(argparse.Namespace(**model_params), self_attn=wSelfAttention)#.to(device).eval()
 
 model_name = "ankh"
 
+model = DKLModel(feat_model, num_dim=FEAT_DIM).to(device).eval()
+likelihood = gpytorch.likelihoods.SoftmaxLikelihood(num_features=FEAT_DIM, num_classes=2).to(device).eval()
+
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
-model.load_state_dict(torch.load(model_path, weights_only=False), strict=True)
+model.load_state_dict(torch.load(model_path)['model'])
+likelihood.load_state_dict(torch.load(model_path)['likelihood'])
 
 test_loader = DataLoader(
         test_dataset,
@@ -488,16 +410,13 @@ test_loader = DataLoader(
     )
 
 with torch.no_grad():
-    names, pred_labels, pred_probas, pred_us, pred_aus, pred_eus, true_labels = infer(model, plm_model, test_loader, device)
+    names, pred_labels, pred_probas, true_labels = infer(model, likelihood, plm_model, test_loader, device)
 
-for name, pred_label, pred_prob, pred_u, pred_au, pred_eu, true_label in zip(names, pred_labels, pred_probas, pred_us, pred_aus, pred_eus, true_labels):
+for name, pred_label, pred_prob in zip(names, pred_labels, pred_probas):
     # pred_dict[name] = {}
     # pred_dict[name]['pred_label'], pred_dict[name]['pred_prob'] = {}, {}
     pred_dict[name]['pred_label'][plm_model_name] = np.int8(pred_label)
     pred_dict[name]['pred_prob'][plm_model_name] = pred_prob
-    pred_dict[name]['pred_u'][plm_model_name] = pred_u
-    pred_dict[name]['pred_au'][plm_model_name] = pred_au
-    pred_dict[name]['pred_eu'][plm_model_name] = pred_eu
     # pred_dict[name]['true_label'] = true_label
 
 plm_model_name = "facebook/esm2_t33_650M_UR50D"
@@ -511,21 +430,16 @@ if 'esm3_structure_seq' in model_params['structure_seqs']:
 else:
     model_params['vocab_size'] = vocab_size
 
-model_params['num_labels'] = HIDDEN_DIM
-backbone_model = AdapterModel(argparse.Namespace(**model_params), self_attn=wSelfAttention)
-model_params['num_labels'] = 2
-
-model = FEDL(
-    backbone_model=backbone_model, 
-    dropout_rate=model_params['pooling_dropout'], 
-    embedding_dim=HIDDEN_DIM, 
-    num_classes=model_params['num_labels'],
-    spect_norm=True).to(device).eval()
+feat_model = AdapterModel(argparse.Namespace(**model_params), self_attn=wSelfAttention)#.to(device).eval()
 
 model_name = "esm2"
 
+model = DKLModel(feat_model, num_dim=FEAT_DIM).to(device).eval()
+likelihood = gpytorch.likelihoods.SoftmaxLikelihood(num_features=FEAT_DIM, num_classes=2).to(device).eval()
+
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
-model.load_state_dict(torch.load(model_path, weights_only=False, map_location=device), strict=True)
+model.load_state_dict(torch.load(model_path)['model'])
+likelihood.load_state_dict(torch.load(model_path)['likelihood'])
 
 test_loader = DataLoader(
         test_dataset,
@@ -535,16 +449,13 @@ test_loader = DataLoader(
     )
 
 with torch.no_grad():
-    names, pred_labels, pred_probas, pred_us, pred_aus, pred_eus, true_labels = infer(model, plm_model, test_loader, device)
+    names, pred_labels, pred_probas, true_labels = infer(model, likelihood, plm_model, test_loader, device)
 
-for name, pred_label, pred_prob, pred_u, pred_au, pred_eu, true_label in zip(names, pred_labels, pred_probas, pred_us, pred_aus, pred_eus, true_labels):
+for name, pred_label, pred_prob in zip(names, pred_labels, pred_probas):
     # pred_dict[name] = {}
     # pred_dict[name]['pred_label'], pred_dict[name]['pred_prob'] = {}, {}
     pred_dict[name]['pred_label'][plm_model_name] = np.int8(pred_label)
     pred_dict[name]['pred_prob'][plm_model_name] = pred_prob
-    pred_dict[name]['pred_u'][plm_model_name] = pred_u
-    pred_dict[name]['pred_au'][plm_model_name] = pred_au
-    pred_dict[name]['pred_eu'][plm_model_name] = pred_eu
     # pred_dict[name]['true_label'] = true_label
 
 plm_model_name = "Rostlab/prot_bert"
@@ -558,21 +469,16 @@ if 'esm3_structure_seq' in model_params['structure_seqs']:
 else:
     model_params['vocab_size'] = vocab_size
 
-model_params['num_labels'] = HIDDEN_DIM
-backbone_model = AdapterModel(argparse.Namespace(**model_params), self_attn=wSelfAttention)
-model_params['num_labels'] = 2
-
-model = FEDL(
-    backbone_model=backbone_model, 
-    dropout_rate=model_params['pooling_dropout'], 
-    embedding_dim=HIDDEN_DIM, 
-    num_classes=model_params['num_labels'],
-    spect_norm=True).to(device).eval()
+feat_model = AdapterModel(argparse.Namespace(**model_params), self_attn=wSelfAttention)#.to(device).eval()
 
 model_name = "prot_bert"
 
+model = DKLModel(feat_model, num_dim=FEAT_DIM).to(device).eval()
+likelihood = gpytorch.likelihoods.SoftmaxLikelihood(num_features=FEAT_DIM, num_classes=2).to(device).eval()
+
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
-model.load_state_dict(torch.load(model_path, weights_only=False, map_location=device), strict=True)
+model.load_state_dict(torch.load(model_path)['model'])
+likelihood.load_state_dict(torch.load(model_path)['likelihood'])
 
 test_loader = DataLoader(
         test_dataset,
@@ -582,16 +488,13 @@ test_loader = DataLoader(
     )
 
 with torch.no_grad():
-    names, pred_labels, pred_probas, pred_us, pred_aus, pred_eus, true_labels = infer(model, plm_model, test_loader, device)
+    names, pred_labels, pred_probas, true_labels = infer(model, likelihood, plm_model, test_loader, device)
 
-for name, pred_label, pred_prob, pred_u, pred_au, pred_eu, true_label in zip(names, pred_labels, pred_probas, pred_us, pred_aus, pred_eus, true_labels):
+for name, pred_label, pred_prob in zip(names, pred_labels, pred_probas):
     # pred_dict[name] = {}
     # pred_dict[name]['pred_label'], pred_dict[name]['pred_prob'] = {}, {}
     pred_dict[name]['pred_label'][plm_model_name] = np.int8(pred_label)
     pred_dict[name]['pred_prob'][plm_model_name] = pred_prob
-    pred_dict[name]['pred_u'][plm_model_name] = pred_u
-    pred_dict[name]['pred_au'][plm_model_name] = pred_au
-    pred_dict[name]['pred_eu'][plm_model_name] = pred_eu
     # pred_dict[name]['true_label'] = true_label
 
 with open(os.path.join(result_save_dir, pred_filename), "w", encoding="utf8") as file:

@@ -9,7 +9,7 @@ testset="test"
 
 for seed in 1 2 3 4 5;
 do
-    python $script \
+    python ./predict_files/$script \
         --datasource $datasource \
         --targetsource $targetsource \
         --testset $testset \

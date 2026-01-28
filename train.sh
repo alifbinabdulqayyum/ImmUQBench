@@ -34,7 +34,7 @@ do
         model_name="${model_name_list[$i]}"
         echo $model_name
 
-        python $script \
+        python ./train_files/$script \
             --plm_model $plm_model_name \
             --num_attention_heads 8 \
             --pooling_method $pooling_head \

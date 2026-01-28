@@ -16,6 +16,8 @@ import os
 from esm.models.esmc import ESMC
 from esm.tokenization import get_esmc_model_tokenizers
 from tqdm import tqdm
+import sys
+sys.path.append(os.getcwd())
 
 model_params = {
     'hidden_size': None,  # 将由PLM模型自动设置
@@ -25,7 +27,7 @@ model_params = {
     'pooling_method': 'attention1d',
     'pooling_dropout': 0.1,
     'return_attentions': False,
-    'structure_seqs': ['ez_descriptor', 'foldseek_seq', 'esm3_structure_seq'], #
+    'structure_seqs': ['ez_descriptor', 'esm3_structure_seq', 'foldseek_seq'], #
     'vocab_size': 4100,
 }
 
@@ -56,22 +58,22 @@ mutation_rate = "" #"full" # #0.001
 
 if args.datasource in ["Virus", "Bacteria", "Tumor"]:
     if 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-        ckpt_root = "./ckpt-{}Immunogen".format(datasource)
+        ckpt_root = "./ckpt-{}Immunogen-SGLD".format(datasource)
     elif not 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-        ckpt_root = "./ckpt-{}Immunogen-woutFoldSeek".format(datasource)
+        ckpt_root = "./ckpt-{}Immunogen-SGLD-woutFoldSeek".format(datasource)
     elif 'foldseek_seq' in model_params['structure_seqs'] and not 'esm3_structure_seq' in model_params['structure_seqs']:
-        ckpt_root = "./ckpt-{}Immunogen-woutESM3".format(datasource)
+        ckpt_root = "./ckpt-{}Immunogen-SGLD-woutESM3".format(datasource)
     else:
-        ckpt_root = "./ckpt-{}Immunogen-only-ez".format(datasource)
+        ckpt_root = "./ckpt-{}Immunogen-SGLD-only-ez".format(datasource)
 elif args.datasource in ["ToxDL", "SDAP2"]:
     if 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-        ckpt_root = "./ckpt-{}".format(datasource)
+        ckpt_root = "./ckpt-{}-SGLD".format(datasource)
     elif not 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
-        ckpt_root = "./ckpt-{}-woutFoldSeek".format(datasource)
+        ckpt_root = "./ckpt-{}-SGLD-woutFoldSeek".format(datasource)
     elif 'foldseek_seq' in model_params['structure_seqs'] and not 'esm3_structure_seq' in model_params['structure_seqs']:
-        ckpt_root = "./ckpt-{}-woutESM3".format(datasource)
+        ckpt_root = "./ckpt-{}-SGLD-woutESM3".format(datasource)
     else:
-        ckpt_root = "./ckpt-{}-only-ez".format(datasource)
+        ckpt_root = "./ckpt-{}-SGLD-only-ez".format(datasource)
 else:
     raise NotImplementedError("Trained Model Unavailable")
 
@@ -79,15 +81,12 @@ if args.seed is not None:
     ckpt_root += f"-seed-{args.seed}"
 
 if args.targetsource in ["Virus", "Bacteria", "Tumor"]:
-    val_datafilepath="./dataset/{}Binary/ESMFold/valid.json".format(datasource)
     test_datafilepath="./dataset/{}Binary/ESMFold/test.json".format(targetsource)
 elif args.targetsource in ["ToxDL"]:
     # datafilepath="./ToxDL_Data/json_files/{}_data_with_label.json".format(testset)
-    val_datafilepath="./ToxDL_Data/json_files/valid_data_with_label.json"
     test_datafilepath="./ToxDL_Data/json_files/{}_data_with_label.json".format(testset)
 elif args.targetsource in ["SDAP2"]:
     # datafilepath="./SDAP2_DATA/json_files/test_data_with_label.json"
-    val_datafilepath="./SDAP2_DATA/json_files/valid_data_with_label.json"
     test_datafilepath="./SDAP2_DATA/json_files/test_data_with_label.json"
 else:
     raise NotImplementedError("Data Not Available")
@@ -98,9 +97,9 @@ else:
 # result_save_dir = "./Predict-Results-VBT-UQ-DROPOUT"
 # result_save_dir = "./Predict-Results-VBT-UQ-LA"
 if args.datasource in ["Virus", "Bacteria", "Tumor"]:
-    result_save_dir = "./Predict-Results-VBT-TS"
+    result_save_dir = "./Predict-Results-VBT-SGLD"
 elif args.datasource in ["SDAP2", "ToxDL"]:
-    result_save_dir = "./Predict-Results-TS"
+    result_save_dir = "./Predict-Results-SGLD"
 else:
     raise NotImplementedError("Data Not Available")
 
@@ -108,7 +107,6 @@ if args.seed is not None:
     result_save_dir += f"-seed-{args.seed}"
 
 os.makedirs(result_save_dir, exist_ok=True)
-
 
 if datasource == targetsource:
     if 'foldseek_seq' in model_params['structure_seqs'] and 'esm3_structure_seq' in model_params['structure_seqs']:
@@ -247,174 +245,31 @@ def collate_fn(
         data_dict["esm3_structure_input_ids"] = esm3_structure_input_ids
     return data_dict
 
-class _ECELoss(torch.nn.Module):
-    """
-    Calculates the Expected Calibration Error of a model.
-    (This isn't necessary for temperature scaling, just a cool metric).
-
-    The input to this loss is the logits of a model, NOT the softmax scores.
-
-    This divides the confidence outputs into equally-sized interval bins.
-    In each bin, we compute the confidence gap:
-
-    bin_gap = | avg_confidence_in_bin - accuracy_in_bin |
-
-    We then return a weighted average of the gaps, based on the number
-    of samples in each bin
-
-    See: Naeini, Mahdi Pakdaman, Gregory F. Cooper, and Milos Hauskrecht.
-    "Obtaining Well Calibrated Probabilities Using Bayesian Binning." AAAI.
-    2015.
-    """
-    def __init__(self, n_bins=15):
-        """
-        n_bins (int): number of confidence interval bins
-        """
-        super(_ECELoss, self).__init__()
-        bin_boundaries = torch.linspace(0, 1, n_bins + 1)
-        self.bin_lowers = bin_boundaries[:-1]
-        self.bin_uppers = bin_boundaries[1:]
-
-    def forward(self, logits, labels):
-        softmaxes = torch.nn.functional.softmax(logits, dim=1)
-        confidences, predictions = torch.max(softmaxes, 1)
-        accuracies = predictions.eq(labels)
-
-        ece = torch.zeros(1, device=logits.device)
-        for bin_lower, bin_upper in zip(self.bin_lowers, self.bin_uppers):
-            # Calculated |confidence - accuracy| in each bin
-            in_bin = confidences.gt(bin_lower.item()) * confidences.le(bin_upper.item())
-            prop_in_bin = in_bin.float().mean()
-            if prop_in_bin.item() > 0:
-                accuracy_in_bin = accuracies[in_bin].float().mean()
-                avg_confidence_in_bin = confidences[in_bin].mean()
-                ece += torch.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
-
-        return ece
-
-class ModelWithTemperature(torch.nn.Module):
-    """
-    A thin decorator, which wraps a model with temperature scaling
-    model (nn.Module):
-        A classification neural network
-        NB: Output of the neural network should be the classification logits,
-            NOT the softmax (or log softmax)!
-    """
-    def __init__(self):
-        super(ModelWithTemperature, self).__init__()
-        # self.model = model
-        # self.plm_model = plm_model
-        self.temperature = torch.nn.Parameter(torch.ones(1))
-
-    # def forward(self, batch):
-    #     batch.pop("names")
-    #     logits = self.model(self.plm_model, batch)
-    #     return self.temperature_scale(logits)
-
-    def temperature_scale(self, logits):
-        """
-        Perform temperature scaling on logits
-        """
-        # Expand temperature to match the size of logits
-        temperature = self.temperature.unsqueeze(1).expand(logits.size(0), logits.size(1))
-        return logits / temperature
-
-    # This function probably should live outside of this class, but whatever
-    def set_temperature(self, model, plm_model, valid_loader, device):
-        """
-        Tune the tempearature of the model (using the validation set).
-        We're going to set it to optimize NLL.
-        valid_loader (DataLoader): validation set loader
-        """
-        model.to(device)
-        plm_model.to(device)
-        nll_criterion = torch.nn.CrossEntropyLoss().to(device)
-        ece_criterion = _ECELoss().to(device)
-
-        # First: collect all the logits and labels for the validation set
-        logits_list = []
-        labels_list = []
-        with torch.no_grad():
-            for batch in valid_loader:
-                batch.pop("names")
-                for k, v in batch.items():
-                    batch[k] = v.to(device)
-                logits = model(plm_model, batch)
-                logits_list.append(logits)
-                labels_list.append(batch['label'])
-            logits = torch.cat(logits_list)#.cuda()
-            labels = torch.cat(labels_list)#.cuda()
-
-        # Calculate NLL and ECE before temperature scaling
-        before_temperature_nll = nll_criterion(logits, labels).item()
-        before_temperature_ece = ece_criterion(logits, labels).item()
-        print('Before temperature - NLL: %.3f, ECE: %.3f' % (before_temperature_nll, before_temperature_ece))
-
-        # Next: optimize the temperature w.r.t. NLL
-        optimizer = torch.optim.LBFGS([self.temperature], lr=0.01, max_iter=50)
-
-        def eval():
-            optimizer.zero_grad()
-            loss = nll_criterion(self.temperature_scale(logits), labels)
-            loss.backward()
-            return loss
-        optimizer.step(eval)
-
-        # Calculate NLL and ECE after temperature scaling
-        after_temperature_nll = nll_criterion(self.temperature_scale(logits), labels).item()
-        after_temperature_ece = ece_criterion(self.temperature_scale(logits), labels).item()
-        print('Optimal temperature: %.3f' % self.temperature.item())
-        print('After temperature - NLL: %.3f, ECE: %.3f' % (after_temperature_nll, after_temperature_ece))
-
-        return self.temperature.item()
-
-# def infer(model, plm_model, dataloader, device, num_runs:int = NUM_RUNS):
-#     names, pred_labels, pred_probas, true_labels = [], [], [], []
-#     model.train()
-#     for batch in tqdm(dataloader):
-#         names.extend(batch.pop("names"))
-#         true_labels.extend(batch.pop("label").cpu().numpy())
-#         for k, v in batch.items():
-#             batch[k] = v.to(device)
-
-#         logits_list = []
-#         for _ in range(num_runs):
-#             with torch.no_grad():
-#                 logits = model(plm_model, batch)
-#             logits_list.append(logits[:,None,:])
-#         logits_list = torch.cat(logits_list, dim=1)
-
-#         pred_labels.extend(logits_list.argmax(dim=-1).cpu().numpy())
-#         pred_probas.extend(logits_list.softmax(dim=-1).cpu().numpy())
-
-#     return names, pred_labels, pred_probas, true_labels
-
-def infer(model, plm_model, dataloader, device, temperature:float=1.0):
+def infer(model, plm_model, dataloader, device, model_stack, num_runs:int = NUM_RUNS):
     names, pred_labels, pred_probas, true_labels = [], [], [], []
-    # model.train()
+    model.train()
     for batch in tqdm(dataloader):
         names.extend(batch.pop("names"))
         true_labels.extend(batch.pop("label").cpu().numpy())
         for k, v in batch.items():
             batch[k] = v.to(device)
 
-        with torch.no_grad():
-            logits = model(plm_model, batch)/temperature
+        logits_list = []
+        for idx in range(num_runs):
+            with torch.no_grad():
+                model.load_state_dict(model_stack[idx], strict=True)
+                logits = model(plm_model, batch)
+            logits_list.append(logits[:,None,:])
+        logits_list = torch.cat(logits_list, dim=1)
 
-        pred_labels.extend(logits.argmax(dim=-1).cpu().numpy())
-        pred_probas.extend(logits.softmax(dim=-1)[:,1].cpu().numpy())
+        pred_labels.extend(logits_list.argmax(dim=-1).cpu().numpy())
+        pred_probas.extend(logits_list.softmax(dim=-1).cpu().numpy())
 
     return names, pred_labels, pred_probas, true_labels
 
 pred_dict = {}
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
-val_dataset, val_token_num = process_dataset_from_json(
-    file=val_datafilepath, 
-    max_seq_len=None,
-    structure_seqs=model_params["structure_seqs"],
-)
 
 test_dataset, test_token_num = process_dataset_from_json(
     file=test_datafilepath, 
@@ -438,28 +293,19 @@ model = AdapterModel(argparse.Namespace(**model_params), initial_seq_layer_norm=
 model_name = "esmc_wiln"
 
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
-model.load_state_dict(torch.load(model_path, weights_only=False), strict=True)
-# print(model)
-
-val_loader = DataLoader(
-        val_dataset,
-        num_workers=4,
-        collate_fn=collate_fn,
-        batch_sampler=BatchSampler(val_token_num, 40000, False)
-    )
+# model.load_state_dict(torch.load(model_path, weights_only=False), strict=True)
 
 test_loader = DataLoader(
         test_dataset,
-        num_workers=4,
+        num_workers=1,
         collate_fn=collate_fn,
         batch_sampler=BatchSampler(test_token_num, 40000, False)
     )
 
-temp_model = ModelWithTemperature().to(device)
-temperature = temp_model.set_temperature(model, plm_model, val_loader, device=device)
+model_stack = torch.load(model_path, map_location='cpu', weights_only=False)
 
 with torch.no_grad():
-    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device, temperature)
+    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device, model_stack)
 
 for name, pred_label, pred_prob, true_label in zip(names, pred_labels, pred_probas, true_labels):
     pred_dict[name] = {}
@@ -484,27 +330,19 @@ model = AdapterModel(argparse.Namespace(**model_params), self_attn=wSelfAttentio
 model_name = "prost_t5"
 
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
-model.load_state_dict(torch.load(model_path, weights_only=False), strict=True)
-
-val_loader = DataLoader(
-        val_dataset,
-        num_workers=4,
-        collate_fn=collate_fn,
-        batch_sampler=BatchSampler(val_token_num, 40000, False)
-    )
+# model.load_state_dict(torch.load(model_path, weights_only=False), strict=True)
 
 test_loader = DataLoader(
         test_dataset,
-        num_workers=4,
+        num_workers=1,
         collate_fn=collate_fn,
         batch_sampler=BatchSampler(test_token_num, 40000, False)
     )
 
-temp_model = ModelWithTemperature().to(device)
-temperature = temp_model.set_temperature(model, plm_model, val_loader, device=device)
+model_stack = torch.load(model_path, map_location='cpu', weights_only=False)
 
 with torch.no_grad():
-    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device, temperature)
+    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device, model_stack)
 
 for name, pred_label, pred_prob in zip(names, pred_labels, pred_probas):
     # pred_dict[name] = {}
@@ -529,27 +367,19 @@ model = AdapterModel(argparse.Namespace(**model_params), self_attn=wSelfAttentio
 model_name = "ankh"
 
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
-model.load_state_dict(torch.load(model_path, weights_only=False), strict=True)
-
-val_loader = DataLoader(
-        val_dataset,
-        num_workers=4,
-        collate_fn=collate_fn,
-        batch_sampler=BatchSampler(val_token_num, 40000, False)
-    )
+# model.load_state_dict(torch.load(model_path, weights_only=False), strict=True)
 
 test_loader = DataLoader(
         test_dataset,
-        num_workers=4,
+        num_workers=1,
         collate_fn=collate_fn,
         batch_sampler=BatchSampler(test_token_num, 40000, False)
     )
 
-temp_model = ModelWithTemperature().to(device)
-temperature = temp_model.set_temperature(model, plm_model, val_loader, device=device)
+model_stack = torch.load(model_path, map_location='cpu', weights_only=False)
 
 with torch.no_grad():
-    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device, temperature)
+    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device, model_stack)
 
 for name, pred_label, pred_prob in zip(names, pred_labels, pred_probas):
     # pred_dict[name] = {}
@@ -574,27 +404,19 @@ model = AdapterModel(argparse.Namespace(**model_params), self_attn=wSelfAttentio
 model_name = "esm2"
 
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
-model.load_state_dict(torch.load(model_path, weights_only=False, map_location=device), strict=True)
-
-val_loader = DataLoader(
-        val_dataset,
-        num_workers=4,
-        collate_fn=collate_fn,
-        batch_sampler=BatchSampler(val_token_num, 40000, False)
-    )
+# model.load_state_dict(torch.load(model_path, weights_only=False, map_location=device), strict=True)
 
 test_loader = DataLoader(
         test_dataset,
-        num_workers=4,
+        num_workers=1,
         collate_fn=collate_fn,
         batch_sampler=BatchSampler(test_token_num, 40000, False)
     )
 
-temp_model = ModelWithTemperature().to(device)
-temperature = temp_model.set_temperature(model, plm_model, val_loader, device=device)
+model_stack = torch.load(model_path, map_location='cpu', weights_only=False)
 
 with torch.no_grad():
-    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device, temperature)
+    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device, model_stack)
 
 for name, pred_label, pred_prob in zip(names, pred_labels, pred_probas):
     # pred_dict[name] = {}
@@ -619,27 +441,19 @@ model = AdapterModel(argparse.Namespace(**model_params), self_attn=wSelfAttentio
 model_name = "prot_bert"
 
 model_path = os.path.join(ckpt_root, "{}/ESMFold_{}_attention1d_{}_{}.pt".format(model_name, model_name, mutation_prob, mutation_rate))
-model.load_state_dict(torch.load(model_path, weights_only=False, map_location=device), strict=True)
-
-val_loader = DataLoader(
-        val_dataset,
-        num_workers=4,
-        collate_fn=collate_fn,
-        batch_sampler=BatchSampler(val_token_num, 40000, False)
-    )
+# model.load_state_dict(torch.load(model_path, weights_only=False, map_location=device), strict=True)
 
 test_loader = DataLoader(
         test_dataset,
-        num_workers=4,
+        num_workers=1,
         collate_fn=collate_fn,
         batch_sampler=BatchSampler(test_token_num, 40000, False)
     )
 
-temp_model = ModelWithTemperature().to(device)
-temperature = temp_model.set_temperature(model, plm_model, val_loader, device=device)
+model_stack = torch.load(model_path, map_location='cpu', weights_only=False)
 
 with torch.no_grad():
-    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device, temperature)
+    names, pred_labels, pred_probas, true_labels = infer(model, plm_model, test_loader, device, model_stack)
 
 for name, pred_label, pred_prob in zip(names, pred_labels, pred_probas):
     # pred_dict[name] = {}
