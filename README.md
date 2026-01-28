@@ -32,8 +32,25 @@ To test the models for In-Distribution scenarios, modify the `predict-determinis
 datasource="Virus" # "Virus" "Bacteria" "Tumor"
 targetsource="Virus" # "Virus" "Bacteria" "Tumor"
 ```
+Similarly to test the deterministic models on ImmunoBacteria dataset, trained with ImmunoTumor dataset, modify the file like this:
+```
+datasource="Tumor" # "Virus" "Bacteria" "Tumor"
+targetsource="Bacteria" # "Virus" "Bacteria" "Tumor"
+```
 # Test UQ Models
 Run `predict.sh` file for testing the trained UQ models.
 ```
 bash predict.sh
+```
+To test specific UQ models, modify the `predict.sh` file accordingly. For example, to test the SWAG models on ImmunoVirus dataset in the In-Distribution scenario, modify the file like this:
+```
+prob_model="swag" #"dvbll", "mcd", "la", "svdkl", "swag", "ts", "edl"
+datasource="Virus" # "Virus" "Bacteria" "Tumor"
+targetsource="Virus" # "Virus" "Bacteria" "Tumor"
+```
+Similarly to test the SWAG models on ImmunoBacteria dataset, trained with ImmunoTumor dataset, modify the file like this:
+```
+prob_model="swag" #"dvbll", "mcd", "la", "svdkl", "swag", "ts", "edl"
+datasource="Tumor" # "Virus" "Bacteria" "Tumor"
+targetsource="Bacteria" # "Virus" "Bacteria" "Tumor"
 ```
