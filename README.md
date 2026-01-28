@@ -54,3 +54,5 @@ prob_model="swag" #"dvbll", "mcd", "la", "svdkl", "swag", "ts", "edl"
 datasource="Tumor" # "Virus" "Bacteria" "Tumor"
 targetsource="Bacteria" # "Virus" "Bacteria" "Tumor"
 ```
+# Evaluate Models
+Run `Evaluate.ipynb` file to evaluate all the models and generate comparative result figures.
