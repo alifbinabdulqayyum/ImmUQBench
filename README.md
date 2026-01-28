@@ -22,3 +22,18 @@ For example if you want train SWAG models on ImmunoBacteria dataset, change the 
 datasource="Bacteria" # "Virus" "Bacteria" "Tumor"
 prob_model="swag" # "edl", "la", "svdkl", "swag", "vbll", "sgld"
 ```
+# Test Deterministic Models
+Run `predict-deterministic.sh` file for testing the trained deterministic models.
+```
+bash predict-deterministic.sh
+```
+To test the models for In-Distribution scenarios, modify the `predict-deterministic.sh` accordingly. For example, to test the deterministic models on ImmunoVirus dataset in the In-Distribution scenario, modify the file like this:
+```
+datasource="Virus" # "Virus" "Bacteria" "Tumor"
+targetsource="Virus" # "Virus" "Bacteria" "Tumor"
+```
+# Test UQ Models
+Run `predict.sh` file for testing the trained UQ models.
+```
+bash predict.sh
+```
